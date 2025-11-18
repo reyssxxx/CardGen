@@ -1,7 +1,7 @@
 import sqlite3 as sql
 import json
 
-def check_id(id):
+def get_user(id):
     db = sql.connect('./data/database.db')
     cur = db.cursor()
 

@@ -16,6 +16,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 
 from data_manage import *
+from utils import *
 
 load_dotenv()
 
@@ -35,11 +36,13 @@ async def command_start(message: Message, state: FSMContext):
     id = message.from_user.id
     print(message.from_user.username)
     print(id)
-    check = check_id(id) #(True, 'МАРИЯ ВАЛЕРЬЕВНА')
-    if str(id) in ADMINS:
-        await message.answer('Приветствую, мой повелителб')
-    elif check:
-        await message.answer(f'Привет, дроогой {check[0].split(' ')[-1]}')
+    check = get_user(id) #(True, 'МАРИЯ ВАЛЕРЬЕВНА')
+    if check and check[-1]==False:
+        text = get_greeting(id)
+        await message.answer(text)
+    elif check and check[-1]:
+        text = get_greeting(id, message.from_user.username)
+        await message.answer(text)
     else:
         markup = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text='Я ученик👶🏿', callback_data='student')],
                                                        [InlineKeyboardButton(text='Я преподаватель🧑🏿‍🦽', callback_data='teacher')]])
@@ -79,7 +82,8 @@ async def get_fi(message: Message, state: FSMContext):
             if message.from_user.username:
                 if get_teacher(message.from_user.username):
                     reg_user(name, id, True)
-                    await message.answer(f'Добро пожаловать, {text[-1]}')
+                    text = get_greeting(id, message.from_user.username)
+                    await message.answer(text)
                     
             else:
                 teacher_queue.pop(-1)
@@ -91,7 +95,8 @@ async def get_fi(message: Message, state: FSMContext):
                     await message.answer('Пользователь уже существует')
                 else:
                     reg_user(name, id, isTeacher = False)
-                    await message.answer(f'Добро пожаловать, {text[-1]}')
+                    text = get_greeting(id)
+                    await message.answer(text)
             else:
                 markup = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text='Я ученик👶🏿', callback_data='student')],
                                                        [InlineKeyboardButton(text='Я преподаватель🧑🏿‍🦽', callback_data='teacher')]])
