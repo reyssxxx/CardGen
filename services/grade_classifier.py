@@ -53,21 +53,71 @@ class GradeClassifier:
         if self.session is not None:
             return True
 
-        if not os.path.exists(self.model_path):
+        # Проверяем наличие PyTorch модели (fallback если ONNX не работает)
+        pth_model_path = self.model_path.replace('.onnx', '_best.pth')
+
+        if not os.path.exists(self.model_path) and not os.path.exists(pth_model_path):
             print(f"[GradeClassifier] Модель не найдена: {self.model_path}")
             print("[GradeClassifier] Запустите scripts/prepare_dataset.py и scripts/train_classifier.py")
             return False
 
+        # Пробуем ONNX Runtime
         try:
             import onnxruntime as ort
-            self.session = ort.InferenceSession(self.model_path)
-            print(f"[GradeClassifier] Модель загружена: {self.model_path}")
-            return True
+            if os.path.exists(self.model_path):
+                self.session = ort.InferenceSession(self.model_path)
+                print(f"[GradeClassifier] ONNX модель загружена: {self.model_path}")
+                return True
         except ImportError:
-            print("[GradeClassifier] Установите onnxruntime: pip install onnxruntime")
-            return False
+            pass  # ONNX Runtime не доступен, используем PyTorch
         except Exception as e:
-            print(f"[GradeClassifier] Ошибка загрузки модели: {e}")
+            print(f"[GradeClassifier] ONNX не загрузился: {e}, пробуем PyTorch")
+
+        # Fallback на PyTorch
+        try:
+            import torch
+            import torch.nn as nn
+
+            # Определяем архитектуру модели (копия из train_classifier.py)
+            class GradeCNN(nn.Module):
+                def __init__(self, num_classes=len(self.classes)):
+                    super(GradeCNN, self).__init__()
+                    self.conv_layers = nn.Sequential(
+                        nn.Conv2d(1, 32, kernel_size=3, padding=0),
+                        nn.BatchNorm2d(32),
+                        nn.ReLU(),
+                        nn.MaxPool2d(2, 2),
+                        nn.Conv2d(32, 64, kernel_size=3, padding=0),
+                        nn.BatchNorm2d(64),
+                        nn.ReLU(),
+                        nn.MaxPool2d(2, 2),
+                        nn.Conv2d(64, 128, kernel_size=3, padding=0),
+                        nn.BatchNorm2d(128),
+                        nn.ReLU(),
+                    )
+                    self.fc_layers = nn.Sequential(
+                        nn.Flatten(),
+                        nn.Linear(128 * 3 * 3, 256),
+                        nn.ReLU(),
+                        nn.Dropout(0.5),
+                        nn.Linear(256, num_classes)
+                    )
+
+                def forward(self, x):
+                    x = self.conv_layers(x)
+                    x = self.fc_layers(x)
+                    return x
+
+            model = GradeCNN(num_classes=len(self.classes))
+            model.load_state_dict(torch.load(pth_model_path, map_location='cpu'))
+            model.eval()
+
+            self.session = {'type': 'pytorch', 'model': model}
+            print(f"[GradeClassifier] PyTorch модель загружена: {pth_model_path}")
+            return True
+
+        except Exception as e:
+            print(f"[GradeClassifier] Ошибка загрузки PyTorch модели: {e}")
             return False
 
     def preprocess(self, cell_image: np.ndarray) -> np.ndarray:
@@ -120,12 +170,20 @@ class GradeClassifier:
             # Предобработка
             input_tensor = self.preprocess(cell_image)
 
-            # Inference
-            input_name = self.session.get_inputs()[0].name
-            outputs = self.session.run(None, {input_name: input_tensor})
+            # Inference (ONNX или PyTorch)
+            if isinstance(self.session, dict) and self.session['type'] == 'pytorch':
+                # PyTorch inference
+                import torch
+                with torch.no_grad():
+                    tensor = torch.from_numpy(input_tensor).float()
+                    logits = self.session['model'](tensor).numpy()[0]
+            else:
+                # ONNX Runtime inference
+                input_name = self.session.get_inputs()[0].name
+                outputs = self.session.run(None, {input_name: input_tensor})
+                logits = outputs[0][0]
 
             # Softmax для получения вероятностей
-            logits = outputs[0][0]
             exp_logits = np.exp(logits - np.max(logits))  # Numerical stability
             probabilities = exp_logits / exp_logits.sum()
 
@@ -169,12 +227,20 @@ class GradeClassifier:
             # Предобработка
             input_tensor = self.preprocess(cell_image)
 
-            # Inference
-            input_name = self.session.get_inputs()[0].name
-            outputs = self.session.run(None, {input_name: input_tensor})
+            # Inference (ONNX или PyTorch)
+            if isinstance(self.session, dict) and self.session['type'] == 'pytorch':
+                # PyTorch inference
+                import torch
+                with torch.no_grad():
+                    tensor = torch.from_numpy(input_tensor).float()
+                    logits = self.session['model'](tensor).numpy()[0]
+            else:
+                # ONNX Runtime inference
+                input_name = self.session.get_inputs()[0].name
+                outputs = self.session.run(None, {input_name: input_tensor})
+                logits = outputs[0][0]
 
             # Softmax
-            logits = outputs[0][0]
             exp_logits = np.exp(logits - np.max(logits))
             probabilities = exp_logits / exp_logits.sum()
 

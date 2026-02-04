@@ -1,0 +1,6 @@
+{
+  "classes": ["1", "2", "3", "4", "5", "empty"],
+  "img_size": 28,
+  "best_accuracy": 99.0,
+  "notes": "Trained on MNIST digits 1-5 + synthetic empty cells"
+}
