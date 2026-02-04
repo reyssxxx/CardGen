@@ -10,6 +10,7 @@ from datetime import datetime
 
 from .image_processing import ImageProcessor
 from .ocr_service import JournalOCR
+from .table_detector import TableDetector
 
 
 class JournalOCRPipeline:
@@ -24,7 +25,112 @@ class JournalOCRPipeline:
         """
         self.image_processor = ImageProcessor()
         self.ocr = JournalOCR()
+        self.table_detector = TableDetector()
         self.save_debug_images = save_debug_images
+
+    def _extract_class_from_header(self, image: np.ndarray) -> Optional[str]:
+        """Извлечь класс из области заголовка (выше таблицы)"""
+        return self.ocr.extract_class_from_header(image)
+
+    def _extract_dates_from_cells(self, header_cells: List) -> List[str]:
+        """Извлечь даты из ячеек заголовка таблицы"""
+        dates = []
+        for cell in header_cells[1:]:  # Пропускаем первую ячейку (обычно "ФИО" или пусто)
+            text = self.table_detector.extract_cell_text(cell)
+            # Пытаемся распознать дату
+            import re
+            date_pattern = r'(\d{1,2})[./](\d{1,2})'
+            match = re.search(date_pattern, text)
+            if match:
+                day, month = match.groups()
+                day = day.zfill(2)
+                month = month.zfill(2)
+                current_year = datetime.now().year
+                dates.append(f"{day}.{month}.{current_year}")
+        return dates
+
+    def _extract_names_from_cells(self, name_cells: List) -> List[str]:
+        """Извлечь имена учеников из ячеек первого столбца"""
+        names = []
+        for cell in name_cells:
+            text = self.table_detector.extract_cell_text(cell)
+            # Фильтруем короткие тексты и номера
+            if len(text.strip()) >= 3 and not text.strip().isdigit():
+                # Нормализуем имя
+                normalized = self.ocr._normalize_russian_name(text)
+                if normalized:
+                    names.append(normalized)
+        return names
+
+    def _extract_grades_from_rows(self, grade_rows: List[List]) -> List[List[Optional[str]]]:
+        """Извлечь оценки из ячеек таблицы"""
+        grades_grid = []
+        for row in grade_rows:
+            student_grades = []
+            for cell in row:
+                text = self.table_detector.extract_cell_text(cell).strip()
+                # Проверяем, является ли это оценкой
+                if self.ocr._is_valid_grade(text):
+                    grade = self.ocr._normalize_grade(text)
+                    student_grades.append(grade)
+                else:
+                    student_grades.append(None)
+            grades_grid.append(student_grades)
+        return grades_grid
+
+    def _process_with_structure(self, image: np.ndarray, image_path: str,
+                                table_result: Dict, students_list: Optional[List[str]],
+                                original_image: Optional[np.ndarray] = None) -> Dict:
+        """Обработка с использованием детектированной структуры таблицы"""
+        print("[INFO] Using table detection method...")
+
+        # Извлечь класс из заголовка (область над таблицей)
+        detected_class = self._extract_class_from_header(image)
+
+        # Извлечь даты из строки заголовка таблицы
+        dates = self._extract_dates_from_cells(table_result['header_cells'])
+
+        # Извлечь имена из первого столбца
+        detected_names = self._extract_names_from_cells(table_result['name_cells'])
+
+        # Сопоставить имена со списком студентов
+        if students_list:
+            validated_names = self.ocr._match_names(detected_names, students_list)
+        else:
+            validated_names = detected_names
+
+        # Извлечь оценки из ячеек таблицы
+        grades_grid = self._extract_grades_from_rows(table_result['grade_rows'])
+
+        # Формируем результат
+        students = []
+        for idx, name in enumerate(validated_names):
+            if idx < len(grades_grid):
+                students.append({
+                    'name': name,
+                    'grades_row': grades_grid[idx]
+                })
+            else:
+                # Если оценок меньше чем имен, добавляем пустую строку
+                students.append({
+                    'name': name,
+                    'grades_row': []
+                })
+
+        return {
+            'class': detected_class,
+            'dates': dates,
+            'students': students
+        }
+
+    def _legacy_process(self, image: np.ndarray, students_list: Optional[List[str]],
+                       original_image: Optional[np.ndarray] = None) -> Dict:
+        """Старый метод обработки (без table detection)"""
+        print("[INFO] Using legacy OCR method...")
+        # Передаем оригинальное изображение в OCR для Tesseract
+        if original_image is not None:
+            self.ocr.original_image = original_image
+        return self.ocr.process_journal_photo(image, students_list)
 
     def process_journal_from_file(self, image_path: str,
                                   students_list: Optional[List[str]] = None,
@@ -54,6 +160,16 @@ class JournalOCRPipeline:
         try:
             print(f"[INFO] Starting journal processing: {image_path}")
 
+            # ВАЖНО: Загружаем оригинальное изображение для Tesseract
+            original_image = cv2.imread(image_path)
+            if original_image is None:
+                return {
+                    'success': False,
+                    'error': 'Failed to load image',
+                    'warnings': ['Could not load the image'],
+                    'debug_info': debug_info
+                }
+
             # Шаг 1: Предобработка изображения
             print("[INFO] Step 1/2: Image preprocessing...")
             preprocessed = self.image_processor.preprocess_for_ocr(
@@ -72,9 +188,38 @@ class JournalOCRPipeline:
             debug_info['preprocessed_shape'] = preprocessed.shape
             print(f"[INFO] Preprocessing complete. Image size: {preprocessed.shape}")
 
-            # Шаг 2: OCR распознавание
-            print("[INFO] Step 2/2: OCR recognition...")
-            ocr_result = self.ocr.process_journal_photo(preprocessed, students_list)
+            # Сохраняем предобработанное изображение временно для table detection
+            temp_path = image_path.replace('.jpg', '_preprocessed.jpg').replace('.png', '_preprocessed.png')
+            cv2.imwrite(temp_path, preprocessed)
+
+            # Шаг 2: Попытка детекции таблицы
+            print("[INFO] Step 2/2: Attempting table detection...")
+            table_result = self.table_detector.detect_table(temp_path)
+
+            if table_result.get('success'):
+                # Используем метод с детекцией таблицы
+                ocr_result = self._process_with_structure(
+                    preprocessed,
+                    temp_path,
+                    table_result,
+                    students_list,
+                    original_image  # Передаем оригинал
+                )
+                debug_info['method'] = 'table_detection'
+            else:
+                # Fallback на старый метод
+                print(f"[INFO] Table detection failed: {table_result.get('error')}")
+                print("[INFO] Falling back to legacy OCR method...")
+                ocr_result = self._legacy_process(preprocessed, students_list, original_image)
+                debug_info['method'] = 'legacy_ocr'
+
+            # Очищаем временный файл
+            try:
+                import os
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+            except:
+                pass
 
             detected_class = ocr_result.get('class')
             dates = ocr_result.get('dates', [])

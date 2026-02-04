@@ -1,6 +1,8 @@
 """
 OCR сервис для распознавания оценок с фотографий журналов
 Использует EasyOCR для распознавания текста
+Опционально использует Tesseract для печатного текста (имена)
+Использует GradeCellDetector и GradeOCREngine для точного распознавания оценок из ячеек
 """
 import re
 import cv2
@@ -10,6 +12,10 @@ from datetime import datetime
 
 # EasyOCR будет импортирован при первом использовании (ленивая загрузка)
 _easyocr_reader = None
+_tesseract_extractor = None
+_grade_cell_detector = None
+_grade_ocr_engine = None
+_document_scanner = None
 
 
 def get_ocr_reader():
@@ -27,13 +33,83 @@ def get_ocr_reader():
 
 
 class JournalOCR:
-    def __init__(self):
+    def __init__(self, use_tesseract_for_names: bool = True):
+        """
+        Args:
+            use_tesseract_for_names: Использовать Tesseract для печатных имен (рекомендуется)
+        """
         self.reader = None  # Будет инициализирован при первом использовании
+        self.use_tesseract_for_names = use_tesseract_for_names
+        self.tesseract = None
+        self.original_image = None  # Оригинальное изображение для Tesseract
 
     def _ensure_reader(self):
         """Убедиться что reader инициализирован"""
         if self.reader is None:
             self.reader = get_ocr_reader()
+
+    def _get_tesseract(self):
+        """Получить Tesseract extractor (ленивая инициализация)"""
+        global _tesseract_extractor
+        if _tesseract_extractor is None:
+            try:
+                from .tesseract_ocr import TesseractNameExtractor
+                _tesseract_extractor = TesseractNameExtractor()
+                if not _tesseract_extractor.is_available():
+                    print("[INFO] Tesseract not available, will use EasyOCR only")
+                    _tesseract_extractor = None
+            except Exception as e:
+                print(f"[WARNING] Could not initialize Tesseract: {e}")
+                _tesseract_extractor = None
+        return _tesseract_extractor
+
+    def _get_cell_detector(self):
+        """Получить GradeCellDetector (ленивая инициализация)"""
+        global _grade_cell_detector
+        if _grade_cell_detector is None:
+            try:
+                try:
+                    from .grade_cell_detector import GradeCellDetector
+                except ImportError:
+                    from grade_cell_detector import GradeCellDetector
+                _grade_cell_detector = GradeCellDetector(debug=False)
+                print("[INFO] GradeCellDetector initialized")
+            except Exception as e:
+                print(f"[WARNING] Could not initialize GradeCellDetector: {e}")
+                _grade_cell_detector = None
+        return _grade_cell_detector
+
+    def _get_grade_ocr_engine(self):
+        """Получить GradeOCREngine (ленивая инициализация)"""
+        global _grade_ocr_engine
+        if _grade_ocr_engine is None:
+            try:
+                try:
+                    from .grade_ocr import GradeOCREngine
+                except ImportError:
+                    from grade_ocr import GradeOCREngine
+                _grade_ocr_engine = GradeOCREngine(debug=False)
+                print("[INFO] GradeOCREngine initialized")
+            except Exception as e:
+                print(f"[WARNING] Could not initialize GradeOCREngine: {e}")
+                _grade_ocr_engine = None
+        return _grade_ocr_engine
+
+    def _get_document_scanner(self):
+        """Получить DocumentScanner (ленивая инициализация)"""
+        global _document_scanner
+        if _document_scanner is None:
+            try:
+                try:
+                    from .document_scanner import DocumentScanner
+                except ImportError:
+                    from document_scanner import DocumentScanner
+                _document_scanner = DocumentScanner()
+                print("[INFO] DocumentScanner initialized")
+            except Exception as e:
+                print(f"[WARNING] Could not initialize DocumentScanner: {e}")
+                _document_scanner = None
+        return _document_scanner
 
     def extract_text_from_image(self, image: np.ndarray) -> List[Tuple]:
         """
@@ -140,20 +216,87 @@ class JournalOCR:
     def extract_student_names(self, image: np.ndarray) -> List[str]:
         """
         Распознать ФИО учеников из второго столбца
+        Сначала пробует Tesseract (лучше для печатного текста),
+        затем fallback на EasyOCR
         """
+        # ПОПЫТКА 1: Tesseract для печатного текста
+        if self.use_tesseract_for_names:
+            tesseract = self._get_tesseract()
+            if tesseract and tesseract.is_available():
+                print("[INFO] Trying Tesseract for name extraction...")
+                try:
+                    # Используем оригинальное изображение если доступно
+                    test_image = self.original_image if self.original_image is not None else image
+                    names = tesseract.extract_names(test_image, names_region_width=0.30)
+                    if names and len(names) > 0:
+                        print(f"[INFO] Tesseract successfully extracted {len(names)} names")
+                        return names
+                    else:
+                        print("[INFO] Tesseract found no names, falling back to EasyOCR")
+                except Exception as e:
+                    print(f"[WARNING] Tesseract failed: {e}, falling back to EasyOCR")
+
+        # ПОПЫТКА 2: EasyOCR (fallback или основной метод)
+        print("[INFO] Using EasyOCR for name extraction...")
+
         # Берем левую часть изображения (где обычно ФИО)
         width = image.shape[1]
         names_region = image[:, 0:int(width * 0.25)]
 
+        # ДОПОЛНИТЕЛЬНАЯ предобработка для области с именами
+        # Увеличиваем контраст и резкость
+        import cv2
+
+        # Увеличиваем размер изображения для лучшего распознавания
+        height, width_orig = names_region.shape[:2]
+        scale_factor = 2.0
+        names_region = cv2.resize(names_region, None, fx=scale_factor, fy=scale_factor,
+                                   interpolation=cv2.INTER_CUBIC)
+
+        # Улучшаем контраст с CLAHE
+        if len(names_region.shape) == 2:  # Grayscale
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+            names_region = clahe.apply(names_region)
+        else:  # Color
+            lab = cv2.cvtColor(names_region, cv2.COLOR_BGR2LAB)
+            l, a, b = cv2.split(lab)
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+            l = clahe.apply(l)
+            names_region = cv2.merge([l, a, b])
+            names_region = cv2.cvtColor(names_region, cv2.COLOR_LAB2BGR)
+
+        # Увеличиваем резкость
+        kernel = np.array([[-1, -1, -1],
+                          [-1,  9, -1],
+                          [-1, -1, -1]])
+        names_region = cv2.filter2D(names_region, -1, kernel)
+
         self._ensure_reader()
-        results = self.reader.readtext(names_region)
+
+        # УЛУЧШЕННЫЕ параметры для ПЕЧАТНОГО текста (имена в журналах обычно печатные)
+        results = self.reader.readtext(
+            names_region,
+            detail=1,
+            paragraph=False,
+            min_size=20,           # УВЕЛИЧЕН для печатного текста с учетом scale
+            text_threshold=0.7,    # ПОВЫШЕН для печатного текста
+            low_text=0.4,          # Порог детекции
+            link_threshold=0.4,    # Порог связывания
+            canvas_size=3840,      # УВЕЛИЧЕН размер canvas
+            mag_ratio=1.5,         # Mag ratio (не нужно много т.к. уже увеличили)
+            width_ths=0.7,         # Порог ширины для группировки
+            ycenter_ths=0.5,       # Порог центра Y для группировки
+            height_ths=0.5,        # Порог высоты
+            add_margin=0.1         # Добавить отступ вокруг текста
+        )
 
         names = []
 
         # Фильтруем: оставляем только строки с буквами (ФИО)
         for (bbox, text, conf) in results:
             # УЛУЧШЕНИЕ 1: Фильтр по confidence score
-            if conf < 0.4:  # Отбрасываем ненадёжное распознавание
+            # СНИЖЕН порог с 0.4 до 0.3 для печатного текста
+            if conf < 0.3:  # Отбрасываем ненадёжное распознавание
                 print(f"[DEBUG] Skipping low confidence text: '{text}' (conf={conf:.2f})")
                 continue
 
@@ -353,14 +496,22 @@ class JournalOCR:
         else:
             validated_names = detected_names
 
-        # 4. Извлекаем оценки
-        print("[INFO] Extracting grades...")
-        num_students = len(validated_names)
-        num_columns = len(dates) if dates else 5  # По умолчанию 5 столбцов
+        # 4. Извлекаем оценки - НОВЫЙ МЕТОД С ДЕТЕКЦИЕЙ ЯЧЕЕК
+        print("[INFO] Extracting grades using cell detection...")
+        cell_detector = self._get_cell_detector()
+        grade_engine = self._get_grade_ocr_engine()
 
-        # Упрощенная версия: не используем сложную детекцию сетки
-        # Вместо этого используем OCR всего изображения и сопоставляем координаты
-        grades_grid = self._extract_grades_simple(image, num_students, num_columns)
+        if cell_detector and grade_engine:
+            # Используем новый метод с детекцией ячеек
+            grades_grid = self._extract_grades_with_cells(
+                image, validated_names, cell_detector, grade_engine
+            )
+        else:
+            # Fallback на старый метод
+            print("[INFO] Cell detection unavailable, using fallback method")
+            num_students = len(validated_names)
+            num_columns = len(dates) if dates else 5
+            grades_grid = self._extract_grades_simple(image, num_students, num_columns)
 
         # 5. Формируем результат
         students = []
@@ -442,15 +593,152 @@ class JournalOCR:
 
         return result
 
+    def _extract_grades_with_cells(self, image: np.ndarray, student_names: List[str],
+                                   cell_detector, grade_engine) -> List[List[Optional[str]]]:
+        """
+        Извлечение оценок с использованием детекции ячеек и multi-method OCR
+
+        Args:
+            image: Изображение журнала
+            student_names: Список имен студентов
+            cell_detector: Экземпляр GradeCellDetector
+            grade_engine: Экземпляр GradeOCREngine
+
+        Returns:
+            Список строк оценок для каждого студента
+        """
+        # 0. Исправляем перспективу документа
+        scanner = self._get_document_scanner()
+        if scanner:
+            scanned_image, found = scanner.scan_document(image)
+            if found:
+                print("[INFO] Document perspective corrected")
+                image = scanned_image
+            else:
+                print("[INFO] Document contour not found, using original")
+
+        # 1. Детектируем все ячейки таблицы
+        print("[INFO] Detecting table cells...")
+        cells = cell_detector.detect_cells(image, names_region_width=0.30)
+
+        if not cells or len(cells) < 10:
+            print("[WARNING] Cell detection failed or too few cells detected, using fallback")
+            num_columns = 5
+            return self._extract_grades_simple(image, len(student_names), num_columns)
+
+        print(f"[INFO] Detected {len(cells)} cells")
+
+        # 2. Фильтруем только ячейки с оценками (пропускаем строки 0 и 1)
+        # R0 = заголовок, R1 = даты, R2+ = студенты
+        student_cells = [c for c in cells if c['row'] >= 2]
+
+        print(f"[INFO] Filtered to {len(student_cells)} grade cells (rows 2+)")
+
+        # 3. Распознаем оценки из каждой ячейки
+        print("[INFO] Recognizing grades from cells...")
+        grade_results = []
+        for cell in student_cells:
+            x, y, w, h = cell['bbox']
+            cell_img = image[y:y+h, x:x+w]
+            result = grade_engine.recognize_grade(cell_img, cell)
+            grade_results.append(result)
+
+        recognized_count = sum(1 for r in grade_results if r['text'])
+        print(f"[INFO] Recognized {recognized_count}/{len(grade_results)} grades")
+
+        # 4. Группируем оценки по строкам (row номер соответствует студенту)
+        # Строка 2 → студент 0, строка 3 → студент 1, и т.д.
+        grades_by_row = {}
+        for result in grade_results:
+            row = result['cell_info']['row']
+            col = result['cell_info']['col']
+            grade_text = result['text'] if result['text'] else None
+
+            if row not in grades_by_row:
+                grades_by_row[row] = {}
+            grades_by_row[row][col] = grade_text
+
+        # 5. Формируем финальную сетку оценок
+        result_grid = []
+        for student_idx, student_name in enumerate(student_names):
+            row_number = student_idx + 2  # Строка 2 для первого студента
+
+            if row_number in grades_by_row:
+                row_grades_dict = grades_by_row[row_number]
+                # Определяем количество столбцов
+                max_col = max(row_grades_dict.keys()) if row_grades_dict else 0
+                num_columns = max_col + 1
+
+                # Создаем упорядоченный список оценок
+                row_grades = [row_grades_dict.get(col, None) for col in range(num_columns)]
+                result_grid.append(row_grades)
+
+                non_empty = sum(1 for g in row_grades if g)
+                print(f"[INFO] {student_name}: {non_empty} grades recognized")
+            else:
+                # Студент без оценок
+                result_grid.append([])
+                print(f"[INFO] {student_name}: no grades found")
+
+        return result_grid
+
+    def _normalize_name(self, name: str) -> str:
+        """
+        Нормализация имени для сравнения
+        Исправляет типичные ошибки OCR
+        """
+        # Убираем лишние пробелы
+        name = ' '.join(name.split())
+
+        # Приводим к нижнему регистру для сравнения
+        name = name.lower()
+
+        # Заменяем ё на е (частая проблема)
+        name = name.replace('ё', 'е')
+
+        # Исправление типичных ошибок OCR (латиница/цифры вместо кириллицы)
+        replacements = {
+            '0': 'о',   # 0 вместо о
+            'o': 'о',   # Латинская o
+            'O': 'о',   # Латинская O
+            'a': 'а',   # Латинская a
+            'A': 'а',   # Латинская A
+            'e': 'е',   # Латинская e
+            'E': 'е',   # Латинская E
+            'c': 'с',   # Латинская c
+            'C': 'с',   # Латинская C
+            'p': 'р',   # Латинская p
+            'P': 'р',   # Латинская P
+            'x': 'х',   # Латинская x
+            'X': 'х',   # Латинская X
+            'B': 'в',   # Латинская B
+            'H': 'н',   # Латинская H
+            'K': 'к',   # Латинская K
+            'M': 'м',   # Латинская M
+            'T': 'т',   # Латинская T
+        }
+
+        for wrong, correct in replacements.items():
+            name = name.replace(wrong, correct)
+
+        # Дополнительные замены для частых ошибок Tesseract
+        # "В" в начале слова часто распознается вместо "Е"
+        if name.startswith('в'):
+            # Проверяем следующий символ - если согласная, вероятно должна быть "е"
+            if len(name) > 1 and name[1] in 'фтмнлксжшщ':
+                name = 'е' + name[1:]
+
+        return name
+
     def _match_names(self, detected_names: List[str],
                     valid_names: List[str]) -> List[str]:
         """
         Сопоставление распознанных имен с валидным списком
-        Использует нечеткое сравнение
+        Использует rapidfuzz для лучшего нечеткого сравнения
 
-        УЛУЧШЕНИЕ 3: Снижен порог с 0.6 до 0.5 для лучшего сопоставления
+        УЛУЧШЕНИЕ: Использует rapidfuzz вместо difflib для лучшей точности
         """
-        from difflib import get_close_matches
+        from rapidfuzz import fuzz, process
 
         matched = []
         for detected in detected_names:
@@ -460,21 +748,22 @@ class JournalOCR:
                 print(f"[DEBUG] Exact match: '{detected}'")
                 continue
 
-            # Нечеткий поиск с пониженным порогом
-            matches = get_close_matches(
-                detected.lower(),
-                [n.lower() for n in valid_names],
-                n=1,
-                cutoff=0.5  # СНИЖЕНО с 0.6 до 0.5
+            # Нормализуем для сравнения
+            detected_norm = self._normalize_name(detected)
+            valid_norm = {self._normalize_name(n): n for n in valid_names}
+
+            # Нечеткое сопоставление с rapidfuzz
+            result = process.extractOne(
+                detected_norm,
+                list(valid_norm.keys()),
+                scorer=fuzz.token_sort_ratio,  # Обрабатывает порядок слов
+                score_cutoff=70  # Минимальный порог схожести (0-100)
             )
 
-            if matches:
-                # Находим оригинальное имя
-                for valid_name in valid_names:
-                    if valid_name.lower() == matches[0]:
-                        matched.append(valid_name)
-                        print(f"[DEBUG] Fuzzy match: '{detected}' -> '{valid_name}'")
-                        break
+            if result:
+                matched_name = valid_norm[result[0]]
+                matched.append(matched_name)
+                print(f"[DEBUG] Fuzzy match: '{detected}' -> '{matched_name}' (score={result[1]:.0f})")
             else:
                 # Оставляем как есть если не нашли совпадение
                 matched.append(detected)

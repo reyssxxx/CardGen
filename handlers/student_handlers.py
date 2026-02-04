@@ -61,7 +61,7 @@ async def cmd_getcard(message: Message):
     try:
         # Используем функцию generate_grade из utils.py
         output_file = f"data/grade_cards/табель_{student_name.replace(' ', '_')}.png"
-        card_path = generate_grade(telegram_id=user_id, output_file=output_file)
+        card_path = await generate_grade(telegram_id=user_id, output_file=output_file)
 
         # Отправить изображение
         photo = FSInputFile(card_path)

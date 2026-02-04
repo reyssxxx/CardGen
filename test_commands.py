@@ -51,7 +51,7 @@ def test_database():
     return None, None
 
 
-def test_grade_generation(student_id, student_name):
+async def test_grade_generation(student_id, student_name):
     """Проверка генерации табеля"""
     print("\n" + "="*60)
     print("🎴 ТЕСТ 2: Генерация табеля")
@@ -61,7 +61,7 @@ def test_grade_generation(student_id, student_name):
         output_file = f"data/grade_cards/test_{student_name.replace(' ', '_')}.png"
         print(f"🔄 Генерирую табель для {student_name}...")
 
-        card_path = generate_grade(telegram_id=student_id, output_file=output_file)
+        card_path = await generate_grade(telegram_id=student_id, output_file=output_file)
 
         print(f"✅ Табель успешно сгенерирован: {card_path}")
         return True
@@ -209,7 +209,7 @@ def test_config_files():
     return True
 
 
-def main():
+async def main():
     """Запуск всех тестов"""
     print("\n" + "="*60)
     print("🧪 ТЕСТИРОВАНИЕ ФУНКЦИОНАЛА БОТА")
@@ -226,7 +226,7 @@ def main():
         return
 
     # Тест 2: Генерация табеля
-    success = test_grade_generation(student_id, student_name)
+    success = await test_grade_generation(student_id, student_name)
     results.append(("Генерация табеля (/getcard)", success))
 
     # Тест 3: Текстовый отчет
@@ -269,4 +269,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

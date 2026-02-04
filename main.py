@@ -12,6 +12,9 @@ from aiogram.enums import ParseMode
 from database.db_manager import init_db
 from handlers import teacher_handlers, student_handlers, admin_handlers, common_handlers
 from services.scheduler_service import SchedulerService
+import warnings
+warnings.filterwarnings('ignore', message='.*pin_memory.*')
+warnings.filterwarnings('ignore', message='.*MPS.*')
 
 load_dotenv()
 

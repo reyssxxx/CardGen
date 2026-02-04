@@ -4,7 +4,7 @@ import json
 import os
 from datetime import datetime, timedelta
 from collections import defaultdict
-from playwright.sync_api import sync_playwright
+from playwright.async_api import async_playwright
 from os import getenv
 from dotenv import load_dotenv
 
@@ -255,7 +255,7 @@ def generate_html(full_name: str, class_name: str, subjects: list,
     return html
 
 
-def generate_grade(telegram_id: int, db_path: str = "data/database.db", config_path: str = "data/config.json", students_path: str = "data/students.json", output_file: str = "табель.png") -> str:
+async def generate_grade(telegram_id: int, db_path: str = "data/database.db", config_path: str = "data/config.json", students_path: str = "data/students.json", output_file: str = "табель.png") -> str:
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
@@ -326,12 +326,12 @@ def generate_grade(telegram_id: int, db_path: str = "data/database.db", config_p
     # Создать директорию если не существует
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch()
-        page = browser.new_page(viewport={'width': 1200, 'height': 800})
-        page.set_content(html)
-        page.screenshot(path=output_file, full_page=True)
-        browser.close()
+    async with async_playwright() as p:
+        browser = await p.chromium.launch()
+        page = await browser.new_page(viewport={'width': 1200, 'height': 800})
+        await page.set_content(html)
+        await page.screenshot(path=output_file, full_page=True)
+        await browser.close()
 
     conn.close()
     print(f"Табель успешно создан: {output_file}")
