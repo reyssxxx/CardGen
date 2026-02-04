@@ -1,3 +1,21 @@
+"""
+⚠️ DEPRECATED - НЕ ИСПОЛЬЗОВАТЬ В НОВОМ КОДЕ!
+
+Этот модуль устарел и будет удален в будущих версиях.
+
+Используйте вместо него:
+- database/user_repository.py → UserRepository
+- database/grade_repository.py → GradeRepository
+- utils/config_loader.py → get_teacher_by_username, check_student_exists
+"""
+
+import warnings
+warnings.warn(
+    "data_manage.py is deprecated. Use database/user_repository.py instead",
+    DeprecationWarning,
+    stacklevel=2
+)
+
 import sqlite3 as sql
 import json
 
@@ -5,7 +23,7 @@ def get_user(id):
     db = sql.connect('./data/database.db')
     cur = db.cursor()
 
-    cur.execute(f'SELECT ФИ, isTeacher FROM Users WHERE ID={id}')
+    cur.execute('SELECT ФИ, isTeacher FROM Users WHERE ID=?', (id,))
     user = cur.fetchone()
 
     db.commit()
@@ -40,7 +58,7 @@ def reg_user(name: str, id: int, isTeacher: bool):
     db = sql.connect('./data/database.db')
     cur = db.cursor()
 
-    cur.execute(f'INSERT INTO Users (ФИ, ID, isTeacher) VALUES ("{name}", {id}, {isTeacher})')
+    cur.execute('INSERT INTO Users (ФИ, ID, isTeacher) VALUES (?, ?, ?)', (name, id, isTeacher))
 
     db.commit()
     db.close()
@@ -49,7 +67,7 @@ def check_existing_name(name: str):
     db = sql.connect('./data/database.db')
     cur = db.cursor()
 
-    cur.execute(f'SELECT * FROM Users WHERE ФИ="{name}"')
+    cur.execute('SELECT * FROM Users WHERE ФИ=?', (name,))
     user = cur.fetchone()
 
     db.commit()
