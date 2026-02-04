@@ -1,15 +1,23 @@
 from data_manage import *
 import sqlite3
 import json
+import os
 from datetime import datetime, timedelta
 from collections import defaultdict
 from playwright.sync_api import sync_playwright
+from os import getenv
+from dotenv import load_dotenv
+
+# Загрузить ADMINS из .env
+load_dotenv()
+ADMIN_ID = getenv('ADMIN_ID')
+ADMINS = ADMIN_ID.split(',') if ADMIN_ID else []
 
 
 def get_greeting(user_id: int, username: str = None) -> str:
     user = get_user(user_id)
     name = user[0].split()[-1]
-    
+
     if str(user_id) in ADMINS:
         return f'Здравствуйте, {name}.\nВы — администратор бота.\n\nПидорович соси'
     elif user[-1]:
@@ -251,24 +259,29 @@ def generate_grade(telegram_id: int, db_path: str = "data/database.db", config_p
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
-    cursor.execute("SELECT full_name, class_name FROM users WHERE id = ?", (telegram_id,))
+    # В таблице Users колонки: ФИ, ID, isTeacher
+    cursor.execute("SELECT \"ФИ\" FROM Users WHERE ID = ?", (telegram_id,))
     result = cursor.fetchone()
     if not result:
         conn.close()
-        print(f"Ученик с ID {telegram_id} не найден")
-    full_name, class_name = result
+        raise Exception(f"Ученик с ID {telegram_id} не найден")
+    full_name = result[0]
 
+    # Получить класс из первой оценки (в таблице Users нет class)
     cursor.execute("""
-        SELECT subject, date, grade 
-        FROM grades 
-        WHERE student = ?
+        SELECT subject, date, grade, class
+        FROM Grades
+        WHERE student_name = ?
         ORDER BY date
     """, (full_name,))
 
     grades_data = cursor.fetchall()
-    conn.close()
     if not grades_data:
-        print(f"Оценки для ученика {full_name} не найдены")
+        conn.close()
+        raise Exception(f"Оценки для ученика {full_name} не найдены")
+
+    # Определить класс из первой оценки
+    class_name = grades_data[0][3] if len(grades_data[0]) > 3 else "Не указан"
     
     with open(config_path, 'r', encoding='utf-8') as f:
         config = json.load(f)
@@ -286,13 +299,21 @@ def generate_grade(telegram_id: int, db_path: str = "data/database.db", config_p
         current_period += timedelta(weeks=2)
     
     grades_by_subject = defaultdict(lambda: defaultdict(list))
-    for subject, date_str, grade in grades_data:
+    for subject, date_str, grade, class_val in grades_data:
+        # Попробовать разные форматы даты
         grade_date = None
-        for i in ("%d.%m.%y", "%d.%m.%Y"):
-            grade_date = datetime.strptime(date_str, i)
-            break
+        for date_format in ("%d.%m.%y", "%d.%m.%Y", "%Y-%m-%d"):
+            try:
+                grade_date = datetime.strptime(date_str, date_format)
+                break
+            except ValueError:
+                continue
+
         if not grade_date:
+            print(f"[WARNING] Не удалось распарсить дату: {date_str}")
             continue
+
+        # Найти период для оценки
         for i, period_start in enumerate(periods):
             period_end = periods[i + 1] if i < len(periods) - 1 else datetime.now()
             if period_start <= grade_date < period_end:
@@ -301,14 +322,17 @@ def generate_grade(telegram_id: int, db_path: str = "data/database.db", config_p
                 break
     
     html = generate_html(full_name, class_name, subjects, periods, grades_by_subject)
+
+    # Создать директорию если не существует
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page(viewport={'width': 1200, 'height': 800})
         page.set_content(html)
         page.screenshot(path=output_file, full_page=True)
         browser.close()
+
+    conn.close()
     print(f"Табель успешно создан: {output_file}")
-    return output_file
-
-
-generate_grade(telegram_id=12345, output_file = f"табель_{full_name}.png") 
+    return output_file 
