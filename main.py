@@ -44,11 +44,18 @@ async def main():
     print("[INFO] Teacher reminders: every Friday 16:00")
     print("[INFO] Admin reports: every Monday 09:00")
 
+    print("[INFO] Connecting to Telegram API...")
     try:
+        print("[INFO] Bot started successfully! Waiting for updates...")
         await dp.start_polling(bot)
+    except KeyboardInterrupt:
+        print("\n[INFO] Bot stopped by user (Ctrl+C)")
+    except Exception as e:
+        print(f"[ERROR] Bot crashed: {e}")
     finally:
         scheduler.stop()
         print("[INFO] Scheduler stopped")
+        print("[INFO] Bot shutdown complete")
 
 
 if __name__ == "__main__":

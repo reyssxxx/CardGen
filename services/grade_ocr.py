@@ -15,8 +15,7 @@ OCR_WEIGHTS = {
     'cnn_classifier': 2.0,   # ЛУЧШИЙ - наш обученный классификатор
     'tesseract_psm10': 1.0,  # Для печатных четких цифр
     'tesseract_psm7': 0.9,   # Универсальный но слабее
-    'trocr': 1.5,            # ЛУЧШИЙ для рукописного текста (Microsoft transformer)
-    'easyocr': 1.2           # Хороший для рукописи
+    'easyocr': 1.2           # Хороший для рукописи (fallback)
 }
 
 
@@ -34,8 +33,6 @@ class GradeOCREngine:
         self.debug = debug
         self.tesseract = None
         self.easyocr_reader = None
-        self.trocr_processor = None
-        self.trocr_model = None
         self.cnn_classifier = None
 
         # Ленивая инициализация CNN классификатора (приоритетный метод)
@@ -73,20 +70,7 @@ class GradeOCREngine:
             except Exception as e:
                 print(f"[WARNING] EasyOCR initialization failed: {e}")
 
-    def _ensure_trocr(self):
-        """Ленивая инициализация TrOCR (Microsoft handwriting model)"""
-        if self.trocr_processor is None or self.trocr_model is None:
-            try:
-                from transformers import TrOCRProcessor, VisionEncoderDecoderModel
-                print("[INFO] Loading TrOCR model (first time may take a few minutes)...")
-
-                # Используем предобученную модель для рукописного текста
-                self.trocr_processor = TrOCRProcessor.from_pretrained('microsoft/trocr-small-handwritten')
-                self.trocr_model = VisionEncoderDecoderModel.from_pretrained('microsoft/trocr-small-handwritten')
-
-                print("[INFO] TrOCR initialized successfully")
-            except Exception as e:
-                print(f"[WARNING] TrOCR initialization failed: {e}")
+    # TrOCR отключен - используем свою обученную CNN модель
 
     def recognize_grade(self, cell_image: np.ndarray, cell_info: Dict) -> Dict:
         """
@@ -361,44 +345,9 @@ class GradeOCREngine:
 
         return '', 0.0
 
+    # TrOCR отключен - используем свою обученную CNN модель + EasyOCR fallback
     def _trocr_extract(self, cell_image: np.ndarray) -> Tuple[str, float]:
-        """Извлечение с помощью TrOCR (Microsoft handwriting model)"""
-        self._ensure_trocr()
-
-        if not self.trocr_processor or not self.trocr_model:
-            return '', 0.0
-
-        try:
-            from PIL import Image
-
-            # Конвертируем в PIL Image
-            if len(cell_image.shape) == 2:
-                # Grayscale -> RGB
-                cell_rgb = cv2.cvtColor(cell_image, cv2.COLOR_GRAY2RGB)
-            else:
-                cell_rgb = cv2.cvtColor(cell_image, cv2.COLOR_BGR2RGB)
-
-            pil_image = Image.fromarray(cell_rgb)
-
-            # Предобработка для TrOCR - увеличиваем и улучшаем контраст
-            preprocessed = self._preprocess_high_contrast(cell_image)
-            preprocessed_rgb = cv2.cvtColor(preprocessed, cv2.COLOR_GRAY2RGB) if len(preprocessed.shape) == 2 else preprocessed
-            pil_preprocessed = Image.fromarray(preprocessed_rgb)
-
-            # Обработка через TrOCR
-            pixel_values = self.trocr_processor(images=pil_preprocessed, return_tensors="pt").pixel_values
-            generated_ids = self.trocr_model.generate(pixel_values)
-            text = self.trocr_processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
-
-            # TrOCR не дает confidence напрямую, используем фиксированное значение 75%
-            confidence = 75.0
-
-            return text.strip(), confidence
-
-        except Exception as e:
-            if self.debug:
-                print(f"[DEBUG] TrOCR error: {e}")
-
+        """TrOCR отключен, возвращаем пустой результат"""
         return '', 0.0
 
     def _normalize_grade_text(self, text: str) -> str:
