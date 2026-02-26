@@ -19,7 +19,7 @@ from keyboards.teacher_keyboards import (
 )
 from keyboards.common_keyboards import get_cancel_keyboard
 from services.mailing_service import MailingService
-from utils.config_loader import get_teacher_classes, get_teacher_name
+from utils.config_loader import get_teacher_classes, get_teacher_name, get_students_by_class
 
 router = Router()
 
@@ -42,6 +42,54 @@ async def teacher_cancel(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.answer()
     await callback.message.edit_text("Главное меню:", reply_markup=get_teacher_main_menu())
+
+
+# ── Мои классы ────────────────────────────────────────────────────────────────
+
+@router.callback_query(F.data == "teacher:my_classes")
+async def teacher_my_classes(callback: CallbackQuery):
+    await callback.answer()
+    user_id = callback.from_user.id
+    if not _get_teacher(user_id):
+        return
+    classes = get_teacher_classes(user_id)
+    if not classes:
+        await callback.message.edit_text(
+            "У тебя нет привязанных классов. Обратись к администратору.",
+            reply_markup=get_teacher_main_menu(),
+        )
+        return
+    text = "<b>Твои классы:</b>\n\n"
+    for cls in classes:
+        students = get_students_by_class(cls)
+        text += f"<b>{cls}</b> ({len(students)} уч.):\n"
+        text += ", ".join(students) + "\n\n"
+    await callback.message.edit_text(text.strip(), parse_mode="HTML", reply_markup=get_teacher_main_menu())
+
+
+# ── История рассылок ──────────────────────────────────────────────────────────
+
+@router.callback_query(F.data == "teacher:history")
+async def teacher_history(callback: CallbackQuery):
+    await callback.answer()
+    user_id = callback.from_user.id
+    if not _get_teacher(user_id):
+        return
+    announcements = announce_repo.get_by_teacher(user_id, limit=10)
+    if not announcements:
+        await callback.message.edit_text(
+            "Ты ещё не отправлял объявлений.",
+            reply_markup=get_teacher_main_menu(),
+        )
+        return
+    from datetime import datetime
+    text = "<b>История рассылок (последние 10):</b>\n\n"
+    for ann in announcements:
+        dt = datetime.fromisoformat(ann["created_at"]).strftime("%d.%m.%Y")
+        target = ann["target"]
+        short = ann["text"][:100] + ("..." if len(ann["text"]) > 100 else "")
+        text += f"<b>{dt} → {target}</b>\n{short}\n\n"
+    await callback.message.edit_text(text.strip(), parse_mode="HTML", reply_markup=get_teacher_main_menu())
 
 
 # ── Объявления ────────────────────────────────────────────────────────────────

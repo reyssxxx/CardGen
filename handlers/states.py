@@ -25,7 +25,6 @@ class AdminCreateEvent(StatesGroup):
     """Состояния для создания мероприятия"""
     entering_title = State()
     entering_date = State()
-    entering_slots = State()
     selecting_limit = State()
     entering_custom_limit = State()
     entering_description = State()
@@ -42,8 +41,6 @@ class AdminSendAnnouncement(StatesGroup):
 class AdminAnswerQuestion(StatesGroup):
     """Состояния для ответа на анонимный вопрос"""
     entering_answer = State()
-    selecting_audience = State()
-    confirming = State()
 
 
 class AdminSendCards(StatesGroup):

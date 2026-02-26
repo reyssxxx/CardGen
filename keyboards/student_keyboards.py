@@ -34,29 +34,23 @@ def get_events_keyboard(events: List[dict]) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def get_event_slots_keyboard(event_id: int, slots: List[str],
-                              unavailable_slots: List[str],
-                              registered_slots: List[str]) -> InlineKeyboardMarkup:
+def get_event_action_keyboard(event_id: int, is_registered: bool, is_full: bool) -> InlineKeyboardMarkup:
+    """Кнопки записи/отмены записи на мероприятие."""
     builder = InlineKeyboardBuilder()
-    for slot in slots:
-        if slot in registered_slots:
-            label = f"✅ {slot} — ты записан"
-            cb = f"event_cancel:{event_id}:{slot}"
-        elif slot in unavailable_slots:
-            label = f"🔒 {slot} — мест нет"
-            cb = f"event_full:{event_id}:{slot}"
-        else:
-            label = f"🕐 {slot} — есть места"
-            cb = f"event_register:{event_id}:{slot}"
-        builder.row(InlineKeyboardButton(text=label, callback_data=cb))
+    if is_registered:
+        builder.row(InlineKeyboardButton(text="❌ Отменить запись", callback_data=f"event_cancel:{event_id}"))
+    elif is_full:
+        builder.row(InlineKeyboardButton(text="🔒 Мест от вашего класса нет", callback_data=f"event_full:{event_id}"))
+    else:
+        builder.row(InlineKeyboardButton(text="✅ Записаться", callback_data=f"event_register:{event_id}"))
     builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_events"))
     return builder.as_markup()
 
 
-def get_cancel_registration_keyboard(event_id: int, slot: str) -> InlineKeyboardMarkup:
+def get_cancel_registration_keyboard(event_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(
-        InlineKeyboardButton(text="✅ Да, отменить", callback_data=f"event_cancel_confirm:{event_id}:{slot}"),
+        InlineKeyboardButton(text="✅ Да, отменить", callback_data=f"event_cancel_confirm:{event_id}"),
         InlineKeyboardButton(text="❌ Нет", callback_data=f"event_view:{event_id}"),
     )
     return builder.as_markup()

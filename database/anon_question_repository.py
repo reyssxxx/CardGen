@@ -14,12 +14,15 @@ class AnonQuestionRepository:
         conn.row_factory = sqlite3.Row
         return conn
 
-    def create(self, text: str) -> int:
+    def create(self, text: str, asker_user_id: int = None) -> int:
         """Сохранить вопрос. Возвращает id."""
         conn = self._conn()
         try:
             cursor = conn.cursor()
-            cursor.execute('INSERT INTO AnonQuestions (text) VALUES (?)', (text,))
+            cursor.execute(
+                'INSERT INTO AnonQuestions (text, asker_user_id) VALUES (?, ?)',
+                (text, asker_user_id),
+            )
             conn.commit()
             return cursor.lastrowid
         finally:

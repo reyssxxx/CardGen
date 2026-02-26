@@ -125,9 +125,16 @@ class DatabaseManager:
                     text TEXT NOT NULL,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     answered BOOLEAN DEFAULT 0,
-                    answer TEXT
+                    answer TEXT,
+                    asker_user_id INTEGER
                 )
             ''')
+
+            # Миграция: добавить asker_user_id в существующие БД
+            try:
+                cursor.execute('ALTER TABLE AnonQuestions ADD COLUMN asker_user_id INTEGER')
+            except sqlite3.OperationalError:
+                pass
 
             conn.commit()
             logger.info("Database initialized successfully")
