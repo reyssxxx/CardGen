@@ -24,30 +24,40 @@ dp.include_router(admin_handlers.router)
 dp.include_router(teacher_handlers.router)
 dp.include_router(student_handlers.router)
 
+logger = logging.getLogger(__name__)
+
 
 async def main():
-    print("[INFO] Initializing database...")
+    logger.info("Initializing database...")
     init_db()
 
     bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 
     scheduler = SchedulerService(bot)
     scheduler.start()
-    print("[INFO] Scheduler started")
+    logger.info("Scheduler started")
 
     try:
-        print("[INFO] Bot started. Waiting for updates...")
+        logger.info("Bot started. Waiting for updates...")
         await dp.start_polling(bot)
     except KeyboardInterrupt:
-        print("\n[INFO] Bot stopped")
+        logger.info("Bot stopped by KeyboardInterrupt")
     except Exception as e:
-        print(f"[ERROR] Bot crashed: {e}")
+        logger.exception("Bot crashed: %s", e)
     finally:
         scheduler.stop()
         await bot.session.close()
-        print("[INFO] Shutdown complete")
+        logger.info("Shutdown complete")
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.WARNING, stream=sys.stdout)
+    logging.basicConfig(
+        level=logging.INFO,
+        stream=sys.stdout,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    # Убираем лишний шум от сторонних библиотек
+    logging.getLogger("aiogram").setLevel(logging.WARNING)
+    logging.getLogger("apscheduler").setLevel(logging.WARNING)
     asyncio.run(main())

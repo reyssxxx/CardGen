@@ -1,8 +1,11 @@
 """
 Менеджер базы данных - создание таблиц и миграции
 """
+import logging
 import sqlite3
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 class DatabaseManager:
@@ -69,6 +72,12 @@ class DatabaseManager:
                 ON Grades(class, subject, date)
             ''')
 
+            # Уникальный индекс: защита от дублей при повторной загрузке Excel
+            cursor.execute('''
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_grades_unique
+                ON Grades(student_name, subject, date, grade)
+            ''')
+
             # Мероприятия
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS Events (
@@ -121,11 +130,11 @@ class DatabaseManager:
             ''')
 
             conn.commit()
-            print("[OK] Database initialized successfully")
+            logger.info("Database initialized successfully")
 
         except Exception as e:
             conn.rollback()
-            print(f"[ERROR] Database initialization failed: {e}")
+            logger.exception("Database initialization failed: %s", e)
             raise
         finally:
             conn.close()
@@ -138,4 +147,5 @@ def init_db():
 
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO)
     init_db()

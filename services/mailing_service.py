@@ -2,7 +2,7 @@
 Сервис для массовой рассылки сообщений и табелей успеваемости.
 """
 import asyncio
-from datetime import date, datetime, timedelta
+import logging
 from typing import Optional
 from aiogram import Bot
 from aiogram.types import FSInputFile
@@ -10,6 +10,8 @@ from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest
 
 from database.user_repository import UserRepository
 from services.grade_card_service import generate_grade_card
+
+logger = logging.getLogger(__name__)
 
 
 class MailingService:
@@ -30,9 +32,10 @@ class MailingService:
                 await self.bot.send_message(user_id, text, parse_mode="HTML")
             return True
         except TelegramForbiddenError:
+            logger.debug("User %s blocked the bot", user_id)
             return False
         except Exception as e:
-            print(f"[ERROR] send to {user_id}: {e}")
+            logger.warning("Failed to send message to %s: %s", user_id, e)
             return False
 
     async def send_text_to_users(self, user_ids: list[tuple], text: str,
@@ -72,7 +75,7 @@ class MailingService:
                 else:
                     failed += 1
             except Exception as e:
-                print(f"[ERROR] card for {name}: {e}")
+                logger.warning("Failed to generate/send card for %s: %s", name, e)
                 failed += 1
             if progress_callback:
                 await progress_callback(sent + failed, total)

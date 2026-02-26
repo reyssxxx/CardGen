@@ -1,10 +1,13 @@
 """
 Репозиторий для работы с оценками
 """
+import logging
 import sqlite3
 from datetime import date, datetime, timedelta
 from typing import List, Dict, Optional
 from database.db_manager import DatabaseManager
+
+logger = logging.getLogger(__name__)
 
 
 class GradeRepository:
@@ -57,12 +60,16 @@ class GradeRepository:
                     'uploaded_by': g.get('uploaded_by'),
                 })
             cursor.executemany('''
-                INSERT INTO Grades (student_name, class, subject, grade, date, uploaded_by)
+                INSERT OR IGNORE INTO Grades (student_name, class, subject, grade, date, uploaded_by)
                 VALUES (:student_name, :class, :subject, :grade, :date, :uploaded_by)
             ''', normalized)
 
             conn.commit()
-            return cursor.rowcount
+            inserted = cursor.rowcount
+            skipped = len(normalized) - inserted
+            if skipped:
+                logger.info("add_grades_bulk: %d inserted, %d duplicates skipped", inserted, skipped)
+            return inserted
 
         except Exception as e:
             conn.rollback()
