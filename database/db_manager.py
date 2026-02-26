@@ -13,7 +13,7 @@ class DatabaseManager:
     def get_connection(self):
         """Получить подключение к БД"""
         conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row  # Доступ к столбцам по имени
+        conn.row_factory = sqlite3.Row
         return conn
 
     def init_database(self):
@@ -22,17 +22,29 @@ class DatabaseManager:
         cursor = conn.cursor()
 
         try:
-            # Таблица Users (уже существует, но проверим)
+            # Ученики, учителя и администраторы
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS Users (
+                    ID INTEGER PRIMARY KEY,
                     ФИ TEXT NOT NULL,
-                    ID INTEGER NOT NULL,
-                    isTeacher BOOLEAN NOT NULL,
-                    PRIMARY KEY (ID)
+                    class TEXT NOT NULL DEFAULT '',
+                    isAdmin BOOLEAN NOT NULL DEFAULT 0,
+                    isTeacher BOOLEAN NOT NULL DEFAULT 0
                 )
             ''')
 
-            # Таблица Grades - хранение оценок
+            # Миграции для существующих БД
+            for migration in [
+                'ALTER TABLE Users ADD COLUMN class TEXT NOT NULL DEFAULT ""',
+                'ALTER TABLE Users ADD COLUMN isAdmin BOOLEAN NOT NULL DEFAULT 0',
+                'ALTER TABLE Users ADD COLUMN isTeacher BOOLEAN NOT NULL DEFAULT 0',
+            ]:
+                try:
+                    cursor.execute(migration)
+                except sqlite3.OperationalError:
+                    pass
+
+            # Оценки
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS Grades (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,61 +53,72 @@ class DatabaseManager:
                     subject TEXT NOT NULL,
                     grade TEXT NOT NULL,
                     date DATE NOT NULL,
-                    teacher_username TEXT,
+                    uploaded_by INTEGER,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (student_name) REFERENCES Users(ФИ)
                 )
             ''')
 
-            # Индекс для быстрого поиска оценок ученика
             cursor.execute('''
                 CREATE INDEX IF NOT EXISTS idx_grades_student
                 ON Grades(student_name, date)
             ''')
 
-            # Индекс для поиска по предмету и классу
             cursor.execute('''
                 CREATE INDEX IF NOT EXISTS idx_grades_subject_class
                 ON Grades(class, subject, date)
             ''')
 
-            # Таблица PhotoUploads - журнал загрузок фото
+            # Мероприятия
             cursor.execute('''
-                CREATE TABLE IF NOT EXISTS PhotoUploads (
+                CREATE TABLE IF NOT EXISTS Events (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    teacher_username TEXT NOT NULL,
-                    subject TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    description TEXT,
+                    date TEXT NOT NULL,
+                    time_slots TEXT NOT NULL,
+                    class_limit INTEGER,
+                    created_by INTEGER NOT NULL,
+                    is_active BOOLEAN DEFAULT 1,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+
+            # Регистрации на мероприятия
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS EventRegistrations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_id INTEGER NOT NULL REFERENCES Events(id),
+                    user_id INTEGER NOT NULL,
+                    time_slot TEXT NOT NULL,
+                    student_name TEXT NOT NULL,
                     class TEXT NOT NULL,
-                    upload_date DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    file_path TEXT,
-                    status TEXT DEFAULT 'pending',
-                    processed_date DATETIME,
-                    error_message TEXT
+                    registered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(event_id, user_id, time_slot)
                 )
             ''')
 
-            # Индекс для поиска загрузок учителя
+            # Объявления
             cursor.execute('''
-                CREATE INDEX IF NOT EXISTS idx_photo_teacher
-                ON PhotoUploads(teacher_username, upload_date)
-            ''')
-
-            # Таблица ScheduledMailings - расписание рассылок
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS ScheduledMailings (
+                CREATE TABLE IF NOT EXISTS Announcements (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    last_mailing_date DATE,
-                    next_mailing_date DATE,
-                    status TEXT DEFAULT 'active'
+                    text TEXT NOT NULL,
+                    target TEXT DEFAULT 'all',
+                    created_by INTEGER NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
 
-            # Инициализация первой записи в ScheduledMailings если её нет
-            cursor.execute('SELECT COUNT(*) FROM ScheduledMailings')
-            if cursor.fetchone()[0] == 0:
-                cursor.execute('''
-                    INSERT INTO ScheduledMailings (status) VALUES ('active')
-                ''')
+            # Анонимные вопросы
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS AnonQuestions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    text TEXT NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    answered BOOLEAN DEFAULT 0,
+                    answer TEXT
+                )
+            ''')
 
             conn.commit()
             print("[OK] Database initialized successfully")
@@ -107,38 +130,12 @@ class DatabaseManager:
         finally:
             conn.close()
 
-    def migrate_existing_data(self):
-        """
-        Миграция существующих данных если нужно
-        (на случай если в БД уже есть данные)
-        """
-        conn = self.get_connection()
-        cursor = conn.cursor()
 
-        try:
-            # Проверка наличия данных в Users
-            cursor.execute('SELECT COUNT(*) FROM Users')
-            user_count = cursor.fetchone()[0]
-
-            if user_count > 0:
-                print(f"[INFO] Found {user_count} users in database")
-
-            conn.commit()
-
-        except Exception as e:
-            print(f"[WARNING] Error during migration: {e}")
-        finally:
-            conn.close()
-
-
-# Функция для быстрого доступа
 def init_db():
-    """Инициализировать БД - вызывается при запуске бота"""
+    """Инициализировать БД — вызывается при запуске бота"""
     db_manager = DatabaseManager()
     db_manager.init_database()
-    db_manager.migrate_existing_data()
 
 
 if __name__ == '__main__':
-    # Тестирование создания БД
     init_db()

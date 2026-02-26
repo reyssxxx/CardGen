@@ -1,146 +1,184 @@
 """
-Репозиторий для работы с пользователями
+Репозиторий для работы с пользователями.
 """
+import os
 import sqlite3
-from typing import Optional, Tuple
+from typing import Optional
 from database.db_manager import DatabaseManager
+from dotenv import load_dotenv
+
+def _get_admin_ids() -> set:
+    load_dotenv(override=True)
+    return {int(x) for x in os.getenv("ADMIN_ID", "").split(",") if x.strip()}
 
 
 class UserRepository:
     def __init__(self, db_path='./data/database.db'):
         self.db_manager = DatabaseManager(db_path)
 
-    def get_user(self, user_id: int) -> Optional[Tuple[str, bool]]:
-        """
-        Получить пользователя по Telegram ID
-        Возвращает: (ФИ, isTeacher) или None
-        """
-        conn = self.db_manager.get_connection()
-        cursor = conn.cursor()
+    def _conn(self):
+        return self.db_manager.get_connection()
 
+    def get_user(self, user_id: int) -> Optional[dict]:
+        """
+        Получить пользователя по Telegram ID.
+        isAdmin определяется по .env ADMIN_ID (не из БД) — источник истины.
+        Возвращает: {'ФИ': str, 'class': str, 'isAdmin': bool, 'isTeacher': bool} или None.
+        """
+        conn = self._conn()
         try:
-            cursor.execute(
-                'SELECT ФИ, isTeacher FROM Users WHERE ID=?',
-                (user_id,)
-            )
-            result = cursor.fetchone()
-
-            if result:
-                return (result['ФИ'], bool(result['isTeacher']))
-            return None
-
-        finally:
-            conn.close()
-
-    def get_user_by_name(self, name: str) -> Optional[dict]:
-        """
-        Получить пользователя по ФИО
-        Возвращает: {'ID': int, 'ФИ': str, 'isTeacher': bool, 'role': str} или None
-        """
-        conn = self.db_manager.get_connection()
-        cursor = conn.cursor()
-
-        try:
-            cursor.execute(
-                'SELECT ID, ФИ, isTeacher FROM Users WHERE ФИ=?',
-                (name,)
-            )
-            result = cursor.fetchone()
-
-            if result:
-                is_teacher = bool(result['isTeacher'])
+            cursor = conn.cursor()
+            cursor.execute('SELECT ФИ, class, isAdmin, isTeacher FROM Users WHERE ID = ?', (user_id,))
+            row = cursor.fetchone()
+            if row:
                 return {
-                    'ID': result['ID'],
-                    'ФИ': result['ФИ'],
-                    'isTeacher': is_teacher,
-                    'role': 'teacher' if is_teacher else 'student'
+                    'ФИ': row['ФИ'],
+                    'class': row['class'],
+                    'isAdmin': user_id in _get_admin_ids(),
+                    'isTeacher': bool(row['isTeacher']),
                 }
             return None
-
         finally:
             conn.close()
 
-    def register_user(self, name: str, user_id: int, is_teacher: bool) -> bool:
+    def register_student(self, name: str, user_id: int, class_name: str) -> bool:
         """
-        Зарегистрировать нового пользователя
-        Возвращает: True если успешно, False если пользователь уже существует
+        Зарегистрировать ученика.
+        Возвращает False если имя уже занято другим пользователем.
         """
-        conn = self.db_manager.get_connection()
-        cursor = conn.cursor()
-
+        conn = self._conn()
         try:
-            cursor.execute(
-                'INSERT INTO Users (ФИ, ID, isTeacher) VALUES (?, ?, ?)',
-                (name, user_id, is_teacher)
-            )
+            # Проверить, не занято ли ФИО
+            cursor = conn.cursor()
+            cursor.execute('SELECT ID FROM Users WHERE ФИ = ?', (name,))
+            existing = cursor.fetchone()
+            if existing and existing['ID'] != user_id:
+                return False
+
+            cursor.execute('''
+                INSERT OR REPLACE INTO Users (ID, ФИ, class, isAdmin)
+                VALUES (?, ?, ?, 0)
+            ''', (user_id, name, class_name))
             conn.commit()
             return True
-
         except sqlite3.IntegrityError:
-            # Пользователь уже существует
             return False
-        except Exception as e:
-            conn.rollback()
-            raise e
         finally:
             conn.close()
 
-    def check_name_exists(self, name: str) -> bool:
-        """
-        Проверить существование пользователя по ФИО
-        """
-        conn = self.db_manager.get_connection()
-        cursor = conn.cursor()
-
+    def register_admin(self, name: str, user_id: int) -> bool:
+        """Зарегистрировать/обновить администратора."""
+        conn = self._conn()
         try:
-            cursor.execute(
-                'SELECT 1 FROM Users WHERE ФИ=? LIMIT 1',
-                (name,)
-            )
-            return cursor.fetchone() is not None
-
+            conn.execute('''
+                INSERT OR REPLACE INTO Users (ID, ФИ, class, isAdmin, isTeacher)
+                VALUES (?, ?, '', 1, 0)
+            ''', (user_id, name))
+            conn.commit()
+            return True
+        except Exception:
+            return False
         finally:
             conn.close()
 
-    def get_all_students(self) -> list:
-        """
-        Получить всех учеников
-        Возвращает: список (user_id, name)
-        """
-        conn = self.db_manager.get_connection()
-        cursor = conn.cursor()
-
+    def register_teacher(self, name: str, user_id: int) -> bool:
+        """Зарегистрировать/обновить учителя."""
+        conn = self._conn()
         try:
-            cursor.execute(
-                'SELECT ID, ФИ FROM Users WHERE isTeacher=0 ORDER BY ФИ'
-            )
-            return [(row['ID'], row['ФИ']) for row in cursor.fetchall()]
+            conn.execute('''
+                INSERT OR REPLACE INTO Users (ID, ФИ, class, isAdmin, isTeacher)
+                VALUES (?, ?, '', 0, 1)
+            ''', (user_id, name))
+            conn.commit()
+            return True
+        except Exception:
+            return False
+        finally:
+            conn.close()
 
+    def is_teacher(self, user_id: int) -> bool:
+        """Проверить, является ли пользователь учителем."""
+        conn = self._conn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('SELECT isTeacher FROM Users WHERE ID = ?', (user_id,))
+            row = cursor.fetchone()
+            return bool(row['isTeacher']) if row else False
         finally:
             conn.close()
 
     def get_all_teachers(self) -> list:
-        """
-        Получить всех учителей
-        Возвращает: список (user_id, name)
-        """
-        conn = self.db_manager.get_connection()
-        cursor = conn.cursor()
-
+        """Получить всех учителей — список (user_id, name)."""
+        conn = self._conn()
         try:
-            cursor.execute(
-                'SELECT ID, ФИ FROM Users WHERE isTeacher=1 ORDER BY ФИ'
-            )
+            cursor = conn.cursor()
+            cursor.execute('SELECT ID, ФИ FROM Users WHERE isTeacher = 1')
             return [(row['ID'], row['ФИ']) for row in cursor.fetchall()]
+        finally:
+            conn.close()
 
+    def is_admin(self, user_id: int) -> bool:
+        """Проверить, является ли пользователь администратором (по .env)."""
+        return user_id in _get_admin_ids()
+
+    def _is_admin_legacy(self, user_id: int) -> bool:
+        """Проверка по БД — только для внутреннего использования."""
+        conn = self._conn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('SELECT isAdmin FROM Users WHERE ID = ?', (user_id,))
+            row = cursor.fetchone()
+            return bool(row['isAdmin']) if row else False
+        finally:
+            conn.close()
+
+    def is_name_taken(self, name: str) -> bool:
+        """Проверить, зарегистрировано ли ФИО."""
+        conn = self._conn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('SELECT 1 FROM Users WHERE ФИ = ?', (name,))
+            return cursor.fetchone() is not None
+        finally:
+            conn.close()
+
+    def get_all_students(self) -> list:
+        """Получить всех учеников — список (user_id, name, class)."""
+        conn = self._conn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT ID, ФИ, class FROM Users WHERE isAdmin = 0 ORDER BY class, ФИ'
+            )
+            return [(row['ID'], row['ФИ'], row['class']) for row in cursor.fetchall()]
         finally:
             conn.close()
 
     def get_students_by_class(self, class_name: str) -> list:
-        """
-        Получить учеников определенного класса
-        Примечание: класс не хранится в Users, нужно смотреть students.json
-        Эта функция для будущего расширения
-        """
-        # TODO: Реализовать после добавления класса в таблицу Users
-        pass
+        """Получить учеников класса — список (user_id, name)."""
+        conn = self._conn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT ID, ФИ FROM Users WHERE isAdmin = 0 AND class = ? ORDER BY ФИ',
+                (class_name,)
+            )
+            return [(row['ID'], row['ФИ']) for row in cursor.fetchall()]
+        finally:
+            conn.close()
+
+    def get_all_admins(self) -> list:
+        """Получить всех администраторов из .env — список (user_id, name)."""
+        admin_ids = _get_admin_ids()
+        conn = self._conn()
+        try:
+            cursor = conn.cursor()
+            result = []
+            for uid in admin_ids:
+                cursor.execute('SELECT ФИ FROM Users WHERE ID = ?', (uid,))
+                row = cursor.fetchone()
+                name = row['ФИ'] if row else "Администратор"
+                result.append((uid, name))
+            return result
+        finally:
+            conn.close()

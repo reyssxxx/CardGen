@@ -37,18 +37,29 @@ class GradeRepository:
 
     def add_grades_bulk(self, grades_data: List[Dict]) -> int:
         """
-        Массовое добавление оценок (после OCR)
-        grades_data: список словарей с ключами: student_name, class, subject, grade, date, teacher_username
-        Возвращает: количество добавленных записей
+        Массовое добавление оценок.
+        grades_data: список словарей с ключами: student_name, class, subject, grade, date
+        Возвращает: количество добавленных записей.
         """
         conn = self.db_manager.get_connection()
         cursor = conn.cursor()
 
         try:
+            # Нормализуем: убираем лишние поля, добавляем uploaded_by если нет
+            normalized = []
+            for g in grades_data:
+                normalized.append({
+                    'student_name': g['student_name'],
+                    'class': g['class'],
+                    'subject': g['subject'],
+                    'grade': g['grade'],
+                    'date': g['date'],
+                    'uploaded_by': g.get('uploaded_by'),
+                })
             cursor.executemany('''
-                INSERT INTO Grades (student_name, class, subject, grade, date, teacher_username)
-                VALUES (:student_name, :class, :subject, :grade, :date, :teacher_username)
-            ''', grades_data)
+                INSERT INTO Grades (student_name, class, subject, grade, date, uploaded_by)
+                VALUES (:student_name, :class, :subject, :grade, :date, :uploaded_by)
+            ''', normalized)
 
             conn.commit()
             return cursor.rowcount
@@ -58,6 +69,10 @@ class GradeRepository:
             raise e
         finally:
             conn.close()
+
+    def bulk_insert_grades(self, grades_data: List[Dict]) -> int:
+        """Алиас для add_grades_bulk."""
+        return self.add_grades_bulk(grades_data)
 
     def get_student_grades(self, student_name: str,
                           subject: Optional[str] = None,

@@ -12,6 +12,7 @@ class ConfigLoader:
         self.base_path = Path(base_path)
         self.config_file = self.base_path / 'config.json'
         self.students_file = self.base_path / 'students.json'
+        self.teachers_file = self.base_path / 'teachers.json'
 
     @lru_cache(maxsize=1)
     def load_config(self) -> Dict:
@@ -104,6 +105,54 @@ class ConfigLoader:
         teacher = self.get_teacher_by_username(username)
         if teacher and len(teacher) > 2:
             return teacher[2]
+        return None
+
+    @lru_cache(maxsize=1)
+    def load_teachers(self) -> Dict[str, Dict]:
+        """
+        Загрузить teachers.json с кешированием.
+        Структура: {"telegram_id": {"name": "...", "subjects": [...], "classes": [...]}, ...}
+        """
+        try:
+            with open(self.teachers_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if not isinstance(data, dict):
+                raise ValueError("Teachers file must be a dictionary")
+            return data
+        except FileNotFoundError:
+            return {}
+        except json.JSONDecodeError as e:
+            print(f"❌ Ошибка парсинга {self.teachers_file}: {e}")
+            return {}
+
+    def get_teacher_by_id(self, user_id: int) -> Optional[Dict]:
+        """Получить данные учителя по Telegram ID. Возвращает dict или None."""
+        teachers = self.load_teachers()
+        return teachers.get(str(user_id))
+
+    def is_teacher(self, user_id: int) -> bool:
+        """Проверить, является ли пользователь учителем."""
+        return self.get_teacher_by_id(user_id) is not None
+
+    def get_teacher_classes(self, user_id: int) -> List[str]:
+        """Получить список классов учителя."""
+        teacher = self.get_teacher_by_id(user_id)
+        if teacher:
+            return teacher.get('classes', [])
+        return []
+
+    def get_teacher_subjects(self, user_id: int) -> List[str]:
+        """Получить список предметов учителя по ID."""
+        teacher = self.get_teacher_by_id(user_id)
+        if teacher:
+            return teacher.get('subjects', [])
+        return []
+
+    def get_teacher_name(self, user_id: int) -> Optional[str]:
+        """Получить имя учителя по ID."""
+        teacher = self.get_teacher_by_id(user_id)
+        if teacher:
+            return teacher.get('name')
         return None
 
     def get_students_by_class(self, class_name: str) -> List[str]:
@@ -241,3 +290,23 @@ def check_student_exists(name: str) -> bool:
 
 def get_teacher_by_username(username: str) -> Optional[List]:
     return _config_loader.get_teacher_by_username(username)
+
+
+def get_teacher_by_id(user_id: int) -> Optional[Dict]:
+    return _config_loader.get_teacher_by_id(user_id)
+
+
+def is_teacher(user_id: int) -> bool:
+    return _config_loader.is_teacher(user_id)
+
+
+def get_teacher_classes(user_id: int) -> List[str]:
+    return _config_loader.get_teacher_classes(user_id)
+
+
+def get_teacher_subjects_by_id(user_id: int) -> List[str]:
+    return _config_loader.get_teacher_subjects(user_id)
+
+
+def get_teacher_name(user_id: int) -> Optional[str]:
+    return _config_loader.get_teacher_name(user_id)

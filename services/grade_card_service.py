@@ -1,36 +1,19 @@
-from data_manage import *
+"""
+Сервис генерации табелей успеваемости.
+HTML → PNG через Playwright.
+"""
 import sqlite3
 import json
 import os
 from datetime import datetime, timedelta
 from collections import defaultdict
 from playwright.async_api import async_playwright
-from os import getenv
-from dotenv import load_dotenv
-
-# Загрузить ADMINS из .env
-load_dotenv()
-ADMIN_ID = getenv('ADMIN_ID')
-ADMINS = ADMIN_ID.split(',') if ADMIN_ID else []
 
 
-def get_greeting(user_id: int, username: str = None) -> str:
-    user = get_user(user_id)
-    name = user[0].split()[-1]
-
-    if str(user_id) in ADMINS:
-        return f'Здравствуйте, {name}.\nВы — администратор бота.\n\nПидорович соси'
-    elif user[-1]:
-        subject = get_teacher(username)[1]
-        return f'Здравствуйте, {name}.\nВаш предмет — {subject}.\n\n/photo — внести фотографию журнала'
-    else:
-        return f'Здравствуй, {name}.\n\n/getcard — получить табель текущей успеваемости'
-
-
-def generate_html(full_name: str, class_name: str, subjects: list, 
-                   periods: list, grades_by_subject: dict) -> str:
+def generate_html(full_name: str, class_name: str, subjects: list,
+                  periods: list, grades_by_subject: dict) -> str:
     """Генерирует HTML-код табеля успеваемости."""
-    
+
     html = f"""<!DOCTYPE html>
     <html lang="ru">
     <head>
@@ -41,7 +24,6 @@ def generate_html(full_name: str, class_name: str, subjects: list,
                 padding: 0;
                 box-sizing: border-box;
             }}
-            
             body {{
                 font-family: 'Arial', sans-serif;
                 background: #ffffff;
@@ -50,39 +32,33 @@ def generate_html(full_name: str, class_name: str, subjects: list,
                 padding: 0;
                 overflow: hidden;
             }}
-            
             .container {{
                 width: 1200px;
                 background: white;
                 border: 3px solid #1e40af;
                 overflow: hidden;
             }}
-            
             .header {{
                 background: #1e40af;
                 color: white;
                 padding: 25px 40px;
                 border-bottom: 3px solid #1e3a8a;
             }}
-            
             .header-top {{
                 text-align: center;
                 margin-bottom: 15px;
             }}
-            
             .lyceum {{
                 font-size: 28px;
                 font-weight: bold;
                 letter-spacing: 1px;
                 margin-bottom: 5px;
             }}
-            
             .header h1 {{
                 font-size: 24px;
                 font-weight: normal;
                 margin-top: 5px;
             }}
-            
             .student-info {{
                 display: flex;
                 justify-content: space-between;
@@ -91,25 +67,14 @@ def generate_html(full_name: str, class_name: str, subjects: list,
                 padding-top: 15px;
                 border-top: 1px solid rgba(255,255,255,0.3);
             }}
-            
-            .student-info .name {{
-                font-weight: bold;
-            }}
-            
-            .student-info .class {{
-                font-weight: bold;
-            }}
-            
-            .content {{
-                padding: 0;
-            }}
-            
+            .student-info .name {{ font-weight: bold; }}
+            .student-info .class {{ font-weight: bold; }}
+            .content {{ padding: 0; }}
             table {{
                 width: 100%;
                 border-collapse: collapse;
                 font-size: 16px;
             }}
-            
             th {{
                 background: #3b82f6;
                 color: white;
@@ -119,20 +84,17 @@ def generate_html(full_name: str, class_name: str, subjects: list,
                 border: 1px solid #2563eb;
                 font-size: 16px;
             }}
-            
             th:first-child {{
                 text-align: left;
                 padding-left: 15px;
                 width: 280px;
             }}
-            
             td {{
                 padding: 10px 8px;
                 text-align: center;
                 border: 1px solid #bfdbfe;
                 font-size: 16px;
             }}
-            
             td:first-child {{
                 text-align: left;
                 padding-left: 15px;
@@ -142,11 +104,9 @@ def generate_html(full_name: str, class_name: str, subjects: list,
                 border-right: 2px solid #93c5fd;
                 font-size: 17px;
             }}
-            
             tr:nth-child(even) td:not(:first-child) {{
                 background-color: #f8fafc;
             }}
-            
             .grade {{
                 display: inline-block;
                 font-weight: 600;
@@ -154,19 +114,16 @@ def generate_html(full_name: str, class_name: str, subjects: list,
                 letter-spacing: 3px;
                 font-size: 18px;
             }}
-            
             .average {{
                 display: inline-block;
                 font-weight: 700;
                 color: #1e40af;
                 font-size: 18px;
             }}
-            
             .empty-cell {{
                 color: #cbd5e0;
                 font-size: 16px;
             }}
-            
             .footer {{
                 text-align: center;
                 padding: 10px;
@@ -190,33 +147,30 @@ def generate_html(full_name: str, class_name: str, subjects: list,
                     <div class="class">Класс: {class_name}</div>
                 </div>
             </div>
-            
             <div class="content">
                 <table>
                     <thead>
                         <tr>
                             <th>Предмет</th>"""
-        
+
     for period in periods:
         period_str = period.strftime("%d.%m")
         html += f"\n                        <th>{period_str}</th>"
-    
+
     html += "\n                        <th>Ср. балл</th>"
-    
     html += """
                     </tr>
                 </thead>
                 <tbody>"""
-    
+
     for subject in subjects:
         html += f"\n                    <tr>\n                        <td>{subject}</td>"
-        
+
         for period in periods:
             period_key = period.strftime("%d.%m")
             grades = grades_by_subject[subject].get(period_key, [])
-            
+
             if grades:
-                # Разбиваем оценки на отдельные цифры для отображения
                 all_digits = []
                 for grade_str in grades:
                     all_digits.extend(list(grade_str))
@@ -224,83 +178,95 @@ def generate_html(full_name: str, class_name: str, subjects: list,
                 html += f"\n                        <td><span class=\"grade\">{grades_str}</span></td>"
             else:
                 html += "\n                        <td><span class=\"empty-cell\">—</span></td>"
-        
-        # Добавляем средний балл
+
         all_grades = []
         for period_grades in grades_by_subject[subject].values():
             for grade_str in period_grades:
                 for digit in grade_str:
                     if digit.isdigit():
                         all_grades.append(int(digit))
-        
+
         if all_grades:
             average = round(sum(all_grades) / len(all_grades), 2)
             html += f"\n                        <td><span class=\"average\">{average}</span></td>"
         else:
             html += "\n                        <td><span class=\"empty-cell\">—</span></td>"
-        
+
         html += "\n                    </tr>"
-    
+
     html += """
                 </tbody>
             </table>
         </div>
-        
         <div class="footer">
             Сгенерировано: """ + datetime.now().strftime("%d.%m.%Y %H:%M") + """
         </div>
     </div>
 </body>
-</html>""" 
+</html>"""
     return html
 
 
-async def generate_grade(telegram_id: int, db_path: str = "data/database.db", config_path: str = "data/config.json", students_path: str = "data/students.json", output_file: str = "табель.png") -> str:
+async def generate_grade_card(
+    student_name: str,
+    class_name: str,
+    db_path: str = "data/database.db",
+    config_path: str = "data/config.json",
+    output_file: str = None
+) -> str:
+    """
+    Генерирует PNG-табель для указанного ученика.
+
+    Args:
+        student_name: ФИО ученика
+        class_name: класс ученика (из Users.class)
+        db_path: путь к БД
+        config_path: путь к config.json
+        output_file: путь к выходному файлу (по умолчанию data/grade_cards/{student_name}.png)
+
+    Returns:
+        Путь к сгенерированному PNG-файлу.
+
+    Raises:
+        Exception: если оценок нет или файл не создался.
+    """
+    if output_file is None:
+        safe_name = student_name.replace(" ", "_")
+        output_file = f"data/grade_cards/{safe_name}.png"
+
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
-    # В таблице Users колонки: ФИ, ID, isTeacher
-    cursor.execute("SELECT \"ФИ\" FROM Users WHERE ID = ?", (telegram_id,))
-    result = cursor.fetchone()
-    if not result:
-        conn.close()
-        raise Exception(f"Ученик с ID {telegram_id} не найден")
-    full_name = result[0]
-
-    # Получить класс из первой оценки (в таблице Users нет class)
     cursor.execute("""
-        SELECT subject, date, grade, class
+        SELECT subject, date, grade
         FROM Grades
         WHERE student_name = ?
         ORDER BY date
-    """, (full_name,))
-
+    """, (student_name,))
     grades_data = cursor.fetchall()
-    if not grades_data:
-        conn.close()
-        raise Exception(f"Оценки для ученика {full_name} не найдены")
+    conn.close()
 
-    # Определить класс из первой оценки
-    class_name = grades_data[0][3] if len(grades_data[0]) > 3 else "Не указан"
-    
+    if not grades_data:
+        raise Exception(f"Оценки для ученика {student_name} не найдены")
+
     with open(config_path, 'r', encoding='utf-8') as f:
         config = json.load(f)
-        subjects = config['subjects']
-    
+    subjects = config['subjects']
+
     now = datetime.now()
     start_year = now.year if now.month >= 9 else now.year - 1
     start_date = datetime(start_year, 9, 1)
-    
+
     periods = []
     current_period = start_date
-    end_date = datetime.now()
-    while current_period <= end_date:
+    while current_period <= now:
         periods.append(current_period)
         current_period += timedelta(weeks=2)
-    
+
     grades_by_subject = defaultdict(lambda: defaultdict(list))
-    for subject, date_str, grade, class_val in grades_data:
-        # Попробовать разные форматы даты
+    for subject, date_str, grade in grades_data:
         grade_date = None
         for date_format in ("%d.%m.%y", "%d.%m.%Y", "%Y-%m-%d"):
             try:
@@ -310,21 +276,16 @@ async def generate_grade(telegram_id: int, db_path: str = "data/database.db", co
                 continue
 
         if not grade_date:
-            print(f"[WARNING] Не удалось распарсить дату: {date_str}")
             continue
 
-        # Найти период для оценки
         for i, period_start in enumerate(periods):
-            period_end = periods[i + 1] if i < len(periods) - 1 else datetime.now()
+            period_end = periods[i + 1] if i < len(periods) - 1 else now
             if period_start <= grade_date < period_end:
                 period_key = period_start.strftime("%d.%m")
                 grades_by_subject[subject][period_key].append(str(grade))
                 break
-    
-    html = generate_html(full_name, class_name, subjects, periods, grades_by_subject)
 
-    # Создать директорию если не существует
-    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    html = generate_html(student_name, class_name, subjects, periods, grades_by_subject)
 
     async with async_playwright() as p:
         browser = await p.chromium.launch()
@@ -333,6 +294,4 @@ async def generate_grade(telegram_id: int, db_path: str = "data/database.db", co
         await page.screenshot(path=output_file, full_page=True)
         await browser.close()
 
-    conn.close()
-    print(f"Табель успешно создан: {output_file}")
-    return output_file 
+    return output_file

@@ -6,74 +6,68 @@ from aiogram.fsm.state import State, StatesGroup
 
 class RegistrationStates(StatesGroup):
     """Состояния для процесса регистрации"""
-    entering_name_student = State()   # Ввод ФИО ученика
-    entering_name_teacher = State()   # Ввод ФИО учителя
+    selecting_role = State()
+    selecting_class = State()
+    selecting_name = State()
+    confirming = State()
+    entering_admin_password = State()
 
 
-class TeacherPhotoUpload(StatesGroup):
-    """Состояния для процесса загрузки фото журнала"""
-    waiting_for_subject = State()      # Ожидание выбора предмета
-    waiting_for_class = State()        # Ожидание выбора класса
-    waiting_for_photo = State()        # Ожидание фото
-    processing_ocr = State()           # Обработка OCR
-    reviewing_dates = State()          # Проверка дат
-    editing_date = State()             # Редактирование конкретной даты
-    reviewing_students = State()       # Проверка оценок учеников
-    editing_grade = State()            # Редактирование оценки
-    final_confirmation = State()       # Финальное подтверждение
+class AdminGradeUpload(StatesGroup):
+    """Состояния для загрузки оценок через Excel"""
+    selecting_class = State()
+    selecting_action = State()
+    waiting_for_file = State()
+    confirming = State()
 
 
-class TeacherManualGrade(StatesGroup):
-    """Состояния для ручного добавления оценки"""
-    waiting_for_subject = State()
-    waiting_for_class = State()
-    waiting_for_student = State()
-    waiting_for_grade = State()
-    waiting_for_date = State()
-    confirmation = State()
+class AdminCreateEvent(StatesGroup):
+    """Состояния для создания мероприятия"""
+    entering_title = State()
+    entering_date = State()
+    entering_slots = State()
+    selecting_limit = State()
+    entering_custom_limit = State()
+    entering_description = State()
+    confirming = State()
 
 
-class TeacherEditGrade(StatesGroup):
-    """Состояния для редактирования оценки"""
-    waiting_for_subject = State()
-    waiting_for_student = State()
-    selecting_grade = State()
-    waiting_for_new_value = State()
-    confirmation = State()
+class AdminSendAnnouncement(StatesGroup):
+    """Состояния для отправки объявления"""
+    selecting_audience = State()
+    entering_text = State()
+    confirming = State()
 
 
-class TeacherSendMessage(StatesGroup):
-    """Состояния для отправки сообщения классу"""
-    waiting_for_class = State()
-    waiting_for_message = State()
-    waiting_for_attachments = State()
-    confirmation = State()
+class AdminAnswerQuestion(StatesGroup):
+    """Состояния для ответа на анонимный вопрос"""
+    entering_answer = State()
+    selecting_audience = State()
+    confirming = State()
 
 
-class AdminManagement(StatesGroup):
-    """Состояния для администрирования"""
-    # Управление учителями
-    add_teacher_username = State()
-    add_teacher_subject = State()
-    add_teacher_class = State()
-
-    # Управление учениками
-    add_student_name = State()
-    add_student_class = State()
-
-    # Управление предметами
-    add_subject_name = State()
-
-    # Рассылка
-    admin_send_selecting_audience = State()
-    admin_send_message = State()
-    admin_send_confirmation = State()
-
-    # Загрузка расписания
-    upload_schedule_file = State()
+class AdminSendCards(StatesGroup):
+    """Состояния для рассылки табелей"""
+    selecting_class = State()
+    confirming = State()
 
 
-class StudentGrades(StatesGroup):
-    """Состояния для просмотра оценок учеником"""
-    selecting_period = State()    # Выбор периода для /grades
-    selecting_subject = State()   # Фильтр по предмету
+class StudentEventRegistration(StatesGroup):
+    """Состояния для регистрации на мероприятие"""
+    selecting_event = State()
+    selecting_slot = State()
+
+
+class StudentAnonQuestion(StatesGroup):
+    """Состояния для отправки анонимного вопроса"""
+    entering_question = State()
+    confirming = State()
+
+
+class TeacherSendAnnouncement(StatesGroup):
+    """Состояния для отправки объявления учителем"""
+    selecting_class = State()
+    entering_text = State()
+    confirming = State()
+
+

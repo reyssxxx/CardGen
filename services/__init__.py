@@ -1,21 +1,15 @@
 """
-Services package - бизнес-логика и сервисы
+Services package
 """
-
-from .image_processing import ImageProcessor
-from .ocr_service import JournalOCR, extract_grades_from_journal
-from .ocr_pipeline import JournalOCRPipeline, process_journal_photo
+from .grade_card_service import generate_grade_card
+from .excel_import_service import parse_grades_excel, generate_template_excel
 from .mailing_service import MailingService
-from .notification_service import NotificationService
 from .scheduler_service import SchedulerService
 
 __all__ = [
-    'ImageProcessor',
-    'JournalOCR',
-    'extract_grades_from_journal',
-    'JournalOCRPipeline',
-    'process_journal_photo',
+    'generate_grade_card',
+    'parse_grades_excel',
+    'generate_template_excel',
     'MailingService',
-    'NotificationService',
     'SchedulerService',
 ]

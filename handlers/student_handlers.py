@@ -1,272 +1,295 @@
 """
-Handlers для функционала ученика
+Handlers для функционала ученика.
 """
-import os
-from datetime import datetime, timedelta
-from typing import Optional
-
-from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, FSInputFile
+from aiogram import Router, F, Bot
+from aiogram.types import Message, CallbackQuery, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 
+from database.user_repository import UserRepository
+from database.grade_repository import GradeRepository
+from database.event_repository import EventRepository
+from database.announcement_repository import AnnouncementRepository
+from database.anon_question_repository import AnonQuestionRepository
+from handlers.states import StudentAnonQuestion
 from keyboards.student_keyboards import (
     get_student_main_menu,
-    get_period_selection_keyboard,
-    get_subject_filter_keyboard
+    get_events_keyboard,
+    get_event_slots_keyboard,
+    get_cancel_registration_keyboard,
+    get_question_confirm_keyboard,
 )
-from handlers.states import StudentGrades
-from database.grade_repository import GradeRepository
-from database.user_repository import UserRepository
-from grade_utils import generate_grade  # Используем функцию из grade_utils.py
-from utils.formatters import format_student_grades_report, format_statistics, calculate_average
+from keyboards.common_keyboards import get_cancel_keyboard
+from services.grade_card_service import generate_grade_card
+from utils.config_loader import get_all_classes
 
-# Создаем router для учеников
 router = Router()
 
-# Инициализация сервисов
-grade_repo = GradeRepository()
 user_repo = UserRepository()
+grade_repo = GradeRepository()
+event_repo = EventRepository()
+announce_repo = AnnouncementRepository()
+anon_repo = AnonQuestionRepository()
+
+
+def _get_student(user_id: int):
+    user = user_repo.get_user(user_id)
+    if not user or user["isAdmin"]:
+        return None
+    return user
+
+
+# ── Главное меню (инлайн) ─────────────────────────────────────────────────────
+
+@router.callback_query(F.data == "menu:card")
+async def menu_card(callback: CallbackQuery):
+    await callback.answer()
+    user = _get_student(callback.from_user.id)
+    if not user:
+        return
+    name = user["ФИ"]
+    class_name = user["class"]
+    grades = grade_repo.get_student_grades(name)
+    if not grades:
+        await callback.message.edit_text(
+            "📭 Оценки пока не выставлены. Обратись к администратору.",
+            reply_markup=get_student_main_menu(),
+        )
+        return
+    await callback.message.edit_text("⏳ Генерирую табель...")
+    try:
+        card_path = await generate_grade_card(name, class_name)
+        photo = FSInputFile(card_path)
+        await callback.message.answer_photo(photo=photo, caption=f"📊 Табель успеваемости\n{name}, {class_name}")
+        await callback.message.edit_text("Что ещё хочешь сделать?", reply_markup=get_student_main_menu())
+    except Exception as e:
+        await callback.message.edit_text(
+            f"Ошибка при генерации табеля: {e}",
+            reply_markup=get_student_main_menu(),
+        )
 
 
 @router.message(Command("getcard"))
 async def cmd_getcard(message: Message):
-    """
-    Команда /getcard - получить табель успеваемости
-
-    Использует функцию generate_grade из utils.py для генерации HTML-табеля
-    """
-    user_id = message.from_user.id
-
-    # Получить пользователя
-    user = user_repo.get_user(user_id)
+    user = _get_student(message.from_user.id)
     if not user:
-        await message.answer("❌ Вы не зарегистрированы. Используйте /start")
+        await message.answer("Вы не зарегистрированы. Используйте /start")
         return
-
-    student_name, is_teacher = user
-    if is_teacher:
-        await message.answer("❌ Эта команда доступна только ученикам")
-        return
-
-    # Проверить наличие оценок
-    grades = grade_repo.get_student_grades(student_name)
+    name = user["ФИ"]
+    class_name = user["class"]
+    grades = grade_repo.get_student_grades(name)
     if not grades:
-        await message.answer("📭 У вас пока нет оценок в системе")
+        await message.answer("Оценки пока не выставлены.")
         return
-
-    # Генерировать табель
-    await message.answer("⏳ Генерирую табель...")
-
+    wait_msg = await message.answer("⏳ Генерирую табель...")
     try:
-        # Используем функцию generate_grade из utils.py
-        output_file = f"data/grade_cards/табель_{student_name.replace(' ', '_')}.png"
-        card_path = await generate_grade(telegram_id=user_id, output_file=output_file)
-
-        # Отправить изображение
+        card_path = await generate_grade_card(name, class_name)
         photo = FSInputFile(card_path)
-        await message.answer_photo(
-            photo=photo,
-            caption=f"📊 Табель успеваемости\n{student_name}"
-        )
-
-        print(f"[INFO] Grade card sent to {student_name}")
-
-        # Удалить временный файл (опционально)
-        # os.remove(card_path)
-
+        await message.answer_photo(photo=photo, caption=f"Табель: {name}")
     except Exception as e:
-        print(f"[ERROR] Failed to generate card: {e}")
-        import traceback
-        traceback.print_exc()
-        await message.answer(f"❌ Ошибка при генерации табеля: {str(e)}")
+        await message.answer(f"Ошибка: {e}")
+    finally:
+        await wait_msg.delete()
 
 
-@router.message(Command("grades"))
-async def cmd_grades(message: Message):
-    """
-    Команда /grades - показать оценки текстом за текущий семестр (90 дней)
-
-    Пример вывода:
-    📊 Оценки для Иванов Иван:
-
-    Математика: 5, 5, 4, 5 (средний: 4.75)
-    Физика: 4, 5, 4 (средний: 4.33)
-    Русский язык: 5, 5, 5, 4 (средний: 4.75)
-    ...
-    """
-    user_id = message.from_user.id
-
-    # Получить пользователя
-    user = user_repo.get_user(user_id)
+@router.callback_query(F.data == "menu:events")
+async def menu_events(callback: CallbackQuery):
+    await callback.answer()
+    user = _get_student(callback.from_user.id)
     if not user:
-        await message.answer("❌ Вы не зарегистрированы. Используйте /start")
         return
-
-    student_name, is_teacher = user
-    if is_teacher:
-        await message.answer("❌ Эта команда доступна только ученикам")
+    events = event_repo.get_active_events()
+    if not events:
+        await callback.message.edit_text(
+            "Сейчас нет активных мероприятий.",
+            reply_markup=get_student_main_menu(),
+        )
         return
+    await callback.message.edit_text("📅 Выбери мероприятие:", reply_markup=get_events_keyboard(events))
 
-    # Получить оценки за полугодие (90 дней)
-    end_date = datetime.now().date()
-    start_date = end_date - timedelta(days=90)
 
-    grades = grade_repo.get_student_grades(
-        student_name=student_name,
-        start_date=start_date.strftime('%Y-%m-%d'),
-        end_date=end_date.strftime('%Y-%m-%d')
+@router.callback_query(F.data == "menu:announcements")
+async def menu_announcements(callback: CallbackQuery):
+    await callback.answer()
+    user = _get_student(callback.from_user.id)
+    if not user:
+        return
+    items = announce_repo.get_recent(limit=5, target=user["class"])
+    if not items:
+        await callback.message.edit_text(
+            "Объявлений пока нет.",
+            reply_markup=get_student_main_menu(),
+        )
+        return
+    from datetime import datetime
+    text = "<b>Последние объявления:</b>\n\n"
+    for item in items:
+        dt = datetime.fromisoformat(item["created_at"]).strftime("%d.%m.%Y")
+        text += f"<b>{dt}</b>\n{item['text']}\n\n"
+    await callback.message.edit_text(text.strip(), parse_mode="HTML", reply_markup=get_student_main_menu())
+
+
+@router.callback_query(F.data == "menu:question")
+async def menu_question(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    user = _get_student(callback.from_user.id)
+    if not user:
+        return
+    await state.set_state(StudentAnonQuestion.entering_question)
+    await callback.message.edit_text(
+        "Твой вопрос будет отправлен администратору анонимно.\n\nНапиши свой вопрос:",
+        reply_markup=get_cancel_keyboard("question_cancel"),
     )
 
-    if not grades:
-        await message.answer("📭 У вас пока нет оценок за этот период")
-        return
 
-    # Сгруппировать по предметам
-    grades_by_subject = {}
-    for grade in grades:
-        subject = grade['subject']
-        if subject not in grades_by_subject:
-            grades_by_subject[subject] = []
-        grades_by_subject[subject].append(grade['grade'])
+# ── Мероприятия ───────────────────────────────────────────────────────────────
 
-    # Форматировать отчет
-    report = format_student_grades_report(student_name, grades_by_subject)
-
-    await message.answer(report)
-
-
-@router.message(Command("stats"))
-async def cmd_stats(message: Message):
-    """
-    Команда /stats - показать статистику оценок
-
-    Пример вывода:
-    📈 Статистика оценок:
-
-    Пятерки: 15
-    Четверки: 8
-    Тройки: 2
-    Двойки: 0
-
-    💯 Средний балл: 4.56
-
-    📝 Всего оценок: 25
-
-    🏆 Лучшие предметы:
-    1. Информатика (5.0)
-    2. Математика (4.9)
-    3. Физика (4.7)
-
-    ⚠️ Требуют внимания:
-    1. Русский язык (3.5)
-    """
-    user_id = message.from_user.id
-
-    # Получить пользователя
-    user = user_repo.get_user(user_id)
+@router.callback_query(F.data.startswith("event_view:"))
+async def view_event(callback: CallbackQuery):
+    await callback.answer()
+    user = _get_student(callback.from_user.id)
     if not user:
-        await message.answer("❌ Вы не зарегистрированы. Используйте /start")
         return
-
-    student_name, is_teacher = user
-    if is_teacher:
-        await message.answer("❌ Эта команда доступна только ученикам")
+    event_id = int(callback.data.split(":")[1])
+    event = event_repo.get_event(event_id)
+    if not event:
+        await callback.message.edit_text("Мероприятие не найдено.")
         return
-
-    # Получить оценки за полугодие
-    end_date = datetime.now().date()
-    start_date = end_date - timedelta(days=90)
-
-    grades = grade_repo.get_student_grades(
-        student_name=student_name,
-        start_date=start_date.strftime('%Y-%m-%d'),
-        end_date=end_date.strftime('%Y-%m-%d')
+    class_name = user["class"]
+    registered = event_repo.get_user_registrations(event_id, callback.from_user.id)
+    unavailable = [
+        s for s in event["time_slots"]
+        if not event_repo.is_slot_available(event_id, s, class_name, event.get("class_limit"))
+           and s not in registered
+    ]
+    desc = event.get("description") or ""
+    limit_text = f"\nЛимит от класса: {event['class_limit']} чел." if event.get("class_limit") else ""
+    text = (
+        f"<b>{event['title']}</b>\n"
+        f"Дата: {event['date']}{limit_text}"
+        + (f"\n\n{desc}" if desc else "")
+        + "\n\nВыбери временной слот:"
+    )
+    await callback.message.edit_text(
+        text, parse_mode="HTML",
+        reply_markup=get_event_slots_keyboard(event_id, event["time_slots"], unavailable, registered),
     )
 
-    if not grades:
-        await message.answer("📭 У вас пока нет оценок за этот период")
+
+@router.callback_query(F.data.startswith("event_register:"))
+async def register_for_event(callback: CallbackQuery):
+    await callback.answer()
+    user = _get_student(callback.from_user.id)
+    if not user:
         return
-
-    # Собрать статистику
-    grade_counts = {'5': 0, '4': 0, '3': 0, '2': 0}
-    grades_by_subject = {}
-
-    for grade in grades:
-        # Подсчет по типам
-        if grade['grade'] in grade_counts:
-            grade_counts[grade['grade']] += 1
-
-        # Группировка по предметам
-        subject = grade['subject']
-        if subject not in grades_by_subject:
-            grades_by_subject[subject] = []
-        if grade['grade'] in ['2', '3', '4', '5']:
-            grades_by_subject[subject].append(grade['grade'])
-
-    # Средний балл
-    avg = grade_repo.get_average_grade(student_name)
-
-    # Топ-3 предмета
-    subject_averages = {}
-    for subject, subject_grades in grades_by_subject.items():
-        if subject_grades:
-            subject_averages[subject] = calculate_average(subject_grades)
-
-    sorted_subjects = sorted(subject_averages.items(), key=lambda x: x[1], reverse=True)
-    top_3 = sorted_subjects[:3]
-    bottom_3 = sorted_subjects[-3:] if len(sorted_subjects) > 3 else []
-
-    # Форматировать
-    stats = {
-        'grade_counts': grade_counts,
-        'average_grade': round(avg, 2) if avg else 0,
-        'total_grades': len(grades)
-    }
-
-    report_lines = [format_statistics(stats)]
-
-    if top_3:
-        report_lines.append("\n🏆 Лучшие предметы:")
-        for i, (subject, avg_grade) in enumerate(top_3, 1):
-            report_lines.append(f"{i}. {subject} ({avg_grade})")
-
-    if bottom_3 and len(sorted_subjects) > 3:
-        report_lines.append("\n⚠️ Требуют внимания:")
-        for i, (subject, avg_grade) in enumerate(bottom_3, 1):
-            report_lines.append(f"{i}. {subject} ({avg_grade})")
-
-    await message.answer('\n'.join(report_lines))
+    _, event_id_str, slot = callback.data.split(":", 2)
+    event_id = int(event_id_str)
+    event = event_repo.get_event(event_id)
+    if not event:
+        return
+    class_name = user["class"]
+    if not event_repo.is_slot_available(event_id, slot, class_name, event.get("class_limit")):
+        await callback.answer("Мест нет — лимит от вашего класса исчерпан.", show_alert=True)
+        return
+    success = event_repo.register(event_id, callback.from_user.id, slot, user["ФИ"], class_name)
+    if success:
+        await callback.answer(f"Ты записан на {slot}! ✅", show_alert=True)
+    else:
+        await callback.answer("Ты уже записан на этот слот.", show_alert=True)
+    await view_event(callback)
 
 
-@router.message(F.text == "📊 Мои оценки")
-async def button_grades(message: Message):
-    """Обработчик кнопки 'Мои оценки' из главного меню"""
-    await cmd_grades(message)
+@router.callback_query(F.data.startswith("event_full:"))
+async def slot_full(callback: CallbackQuery):
+    await callback.answer("Мест нет — лимит от вашего класса исчерпан.", show_alert=True)
 
 
-@router.message(F.text == "🎴 Получить табель")
-async def button_getcard(message: Message):
-    """Обработчик кнопки 'Получить табель' из главного меню"""
-    await cmd_getcard(message)
+@router.callback_query(F.data.startswith("event_cancel:"))
+async def ask_cancel_registration(callback: CallbackQuery):
+    await callback.answer()
+    _, event_id_str, slot = callback.data.split(":", 2)
+    event_id = int(event_id_str)
+    await callback.message.edit_text(
+        f"Ты записан на <b>{slot}</b>. Отменить запись?",
+        parse_mode="HTML",
+        reply_markup=get_cancel_registration_keyboard(event_id, slot),
+    )
 
 
-@router.message(F.text == "📈 Статистика")
-async def button_stats(message: Message):
-    """Обработчик кнопки 'Статистика' из главного меню"""
-    await cmd_stats(message)
+@router.callback_query(F.data.startswith("event_cancel_confirm:"))
+async def confirm_cancel_registration(callback: CallbackQuery):
+    await callback.answer()
+    _, event_id_str, slot = callback.data.split(":", 2)
+    event_id = int(event_id_str)
+    event_repo.unregister(event_id, callback.from_user.id, slot)
+    await callback.answer(f"Запись на {slot} отменена.", show_alert=True)
+    await view_event(callback)
 
 
-@router.message(F.text == "ℹ️ Помощь")
-async def button_help(message: Message):
-    """Обработчик кнопки 'Помощь' из главного меню"""
-    help_text = """
-📚 Доступные команды для учеников:
+@router.callback_query(F.data == "back_to_events")
+async def back_to_events(callback: CallbackQuery):
+    await callback.answer()
+    events = event_repo.get_active_events()
+    if not events:
+        await callback.message.edit_text("Сейчас нет активных мероприятий.", reply_markup=get_student_main_menu())
+        return
+    await callback.message.edit_text("📅 Выбери мероприятие:", reply_markup=get_events_keyboard(events))
 
-/getcard - Получить табель успеваемости за последние 14 дней
-/grades - Показать оценки текстом за полугодие
-/stats - Показать статистику оценок
 
-Или используйте кнопки меню ниже.
-    """
-    await message.answer(help_text.strip())
+# ── Анонимные вопросы ─────────────────────────────────────────────────────────
+
+@router.message(StudentAnonQuestion.entering_question)
+async def process_anon_question_text(message: Message, state: FSMContext):
+    text = message.text.strip()
+    if len(text) < 5:
+        await message.answer("Пожалуйста, напиши более развернутый вопрос.")
+        return
+    await state.update_data(question_text=text)
+    await state.set_state(StudentAnonQuestion.confirming)
+    await message.answer(
+        f"Твой вопрос:\n\n<i>{text}</i>\n\nОтправить?",
+        parse_mode="HTML",
+        reply_markup=get_question_confirm_keyboard(),
+    )
+
+
+@router.callback_query(StudentAnonQuestion.confirming, F.data == "question_confirm")
+async def confirm_anon_question(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    await callback.answer()
+    data = await state.get_data()
+    text = data["question_text"]
+    question_id = anon_repo.create(text)
+    await state.clear()
+
+    # Получаем имя и класс ученика
+    user = user_repo.get_user(callback.from_user.id)
+    student_info = f"{user['ФИ']}, {user['class']}" if user else "Аноним"
+
+    # Кнопка "Ответить" ведёт прямо в обработчик ответа в admin_handlers
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✏️ Ответить", callback_data=f"question_answer:{question_id}")
+    kb.button(text="🗑 Удалить", callback_data=f"question_delete:{question_id}")
+    kb.adjust(2)
+
+    notify_text = (
+        f"❓ Новый вопрос от ученика\n"
+        f"<b>От:</b> {student_info}\n\n"
+        f"<i>{text}</i>"
+    )
+
+    admins = user_repo.get_all_admins()
+    for admin_id, _ in admins:
+        try:
+            await bot.send_message(admin_id, notify_text, parse_mode="HTML", reply_markup=kb.as_markup())
+        except Exception:
+            pass
+
+    await callback.message.edit_text("✅ Вопрос отправлен!", reply_markup=get_student_main_menu())
+
+
+@router.callback_query(F.data == "question_cancel")
+async def cancel_question(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.clear()
+    await callback.message.edit_text("Отменено.", reply_markup=get_student_main_menu())

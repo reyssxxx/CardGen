@@ -1,95 +1,71 @@
 """
-Клавиатуры для функционала ученика
+Клавиатуры для ученика.
 """
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
-from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from typing import List
 
 
-def get_student_main_menu() -> ReplyKeyboardMarkup:
-    """
-    Главное меню ученика (Reply клавиатура)
-
-    Returns:
-        Reply клавиатура с основными командами
-    """
-    builder = ReplyKeyboardBuilder()
-
-    builder.row(
-        KeyboardButton(text="📊 Мои оценки"),
-        KeyboardButton(text="🎴 Получить табель")
-    )
-
-    builder.row(
-        KeyboardButton(text="📈 Статистика"),
-        KeyboardButton(text="ℹ️ Помощь")
-    )
-
-    return builder.as_markup(resize_keyboard=True)
-
-
-def get_period_selection_keyboard() -> InlineKeyboardMarkup:
-    """
-    Клавиатура выбора периода для просмотра оценок
-
-    Returns:
-        Inline клавиатура с периодами
-    """
+def get_student_main_menu() -> InlineKeyboardMarkup:
+    """Главное меню ученика (инлайн)."""
     builder = InlineKeyboardBuilder()
-
     builder.row(
-        InlineKeyboardButton(text="За неделю (7 дней)", callback_data="period:7")
+        InlineKeyboardButton(text="🎴 Мой табель", callback_data="menu:card"),
+        InlineKeyboardButton(text="📅 Мероприятия", callback_data="menu:events"),
     )
-
     builder.row(
-        InlineKeyboardButton(text="За 2 недели (14 дней) ⭐", callback_data="period:14")
+        InlineKeyboardButton(text="📢 Объявления", callback_data="menu:announcements"),
+        InlineKeyboardButton(text="❓ Задать вопрос", callback_data="menu:question"),
     )
-
-    builder.row(
-        InlineKeyboardButton(text="За месяц (30 дней)", callback_data="period:30")
-    )
-
-    builder.row(
-        InlineKeyboardButton(text="За полугодие (90 дней)", callback_data="period:90")
-    )
-
-    builder.row(
-        InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_period")
-    )
-
     return builder.as_markup()
 
 
-def get_subject_filter_keyboard(subjects: List[str]) -> InlineKeyboardMarkup:
-    """
-    Клавиатура фильтра по предметам
-
-    Args:
-        subjects: Список предметов ученика
-
-    Returns:
-        Inline клавиатура с предметами
-    """
+def get_events_keyboard(events: List[dict]) -> InlineKeyboardMarkup:
+    """Список активных мероприятий."""
     builder = InlineKeyboardBuilder()
-
-    # Кнопка "Все предметы"
-    builder.row(
-        InlineKeyboardButton(text="📚 Все предметы", callback_data="subject:all")
-    )
-
-    # Кнопки предметов
-    for subject in subjects:
-        builder.button(
-            text=subject,
-            callback_data=f"subject:{subject}"
+    for event in events:
+        builder.row(
+            InlineKeyboardButton(
+                text=f"📅 {event['title']} — {event['date']}",
+                callback_data=f"event_view:{event['id']}",
+            )
         )
+    builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="menu:back_student"))
+    return builder.as_markup()
 
-    # 2 предмета в ряд
-    builder.adjust(1, *[2] * (len(subjects) // 2 + 1))
 
-    # Кнопка назад
+def get_event_slots_keyboard(event_id: int, slots: List[str],
+                              unavailable_slots: List[str],
+                              registered_slots: List[str]) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for slot in slots:
+        if slot in registered_slots:
+            label = f"✅ {slot} — ты записан"
+            cb = f"event_cancel:{event_id}:{slot}"
+        elif slot in unavailable_slots:
+            label = f"🔒 {slot} — мест нет"
+            cb = f"event_full:{event_id}:{slot}"
+        else:
+            label = f"🕐 {slot} — есть места"
+            cb = f"event_register:{event_id}:{slot}"
+        builder.row(InlineKeyboardButton(text=label, callback_data=cb))
+    builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_events"))
+    return builder.as_markup()
+
+
+def get_cancel_registration_keyboard(event_id: int, slot: str) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
     builder.row(
-        InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_menu")
+        InlineKeyboardButton(text="✅ Да, отменить", callback_data=f"event_cancel_confirm:{event_id}:{slot}"),
+        InlineKeyboardButton(text="❌ Нет", callback_data=f"event_view:{event_id}"),
     )
+    return builder.as_markup()
 
+
+def get_question_confirm_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="✅ Отправить", callback_data="question_confirm"),
+        InlineKeyboardButton(text="❌ Отмена", callback_data="question_cancel"),
+    )
     return builder.as_markup()
