@@ -28,6 +28,20 @@ class AnnouncementRepository:
         finally:
             conn.close()
 
+    def get_by_teacher(self, user_id: int, limit: int = 10) -> list:
+        """Получить объявления конкретного учителя (по created_by)."""
+        conn = self._conn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT * FROM Announcements
+                WHERE created_by = ?
+                ORDER BY created_at DESC LIMIT ?
+            ''', (user_id, limit))
+            return [dict(row) for row in cursor.fetchall()]
+        finally:
+            conn.close()
+
     def get_recent(self, limit: int = 5, target: Optional[str] = None) -> list:
         """
         Получить последние объявления.

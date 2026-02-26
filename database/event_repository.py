@@ -176,6 +176,61 @@ class EventRepository:
         finally:
             conn.close()
 
+    def is_registered(self, event_id: int, user_id: int) -> bool:
+        """Проверить, записан ли пользователь на мероприятие."""
+        conn = self._conn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT 1 FROM EventRegistrations WHERE event_id = ? AND user_id = ?',
+                (event_id, user_id),
+            )
+            return cursor.fetchone() is not None
+        finally:
+            conn.close()
+
+    def is_event_available(self, event_id: int, class_name: str, class_limit) -> bool:
+        """Есть ли свободные места от класса (без учёта слотов)."""
+        if not class_limit:
+            return True
+        conn = self._conn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT COUNT(*) FROM EventRegistrations WHERE event_id = ? AND class = ?',
+                (event_id, class_name),
+            )
+            return cursor.fetchone()[0] < class_limit
+        finally:
+            conn.close()
+
+    def unregister_from_event(self, event_id: int, user_id: int):
+        """Отменить запись ученика на мероприятие (без слота)."""
+        conn = self._conn()
+        try:
+            conn.execute(
+                'DELETE FROM EventRegistrations WHERE event_id = ? AND user_id = ?',
+                (event_id, user_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_all_registrations(self, event_id: int) -> list:
+        """Получить плоский список всех записавшихся на мероприятие."""
+        conn = self._conn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT student_name, class
+                FROM EventRegistrations
+                WHERE event_id = ?
+                ORDER BY class, student_name
+            ''', (event_id,))
+            return [{'student_name': row[0], 'class': row[1]} for row in cursor.fetchall()]
+        finally:
+            conn.close()
+
     def get_total_registrations(self, event_id: int) -> int:
         """Общее число регистраций на мероприятие."""
         conn = self._conn()

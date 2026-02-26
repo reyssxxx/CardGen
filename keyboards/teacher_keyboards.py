@@ -12,6 +12,10 @@ def get_teacher_main_menu() -> InlineKeyboardMarkup:
     builder.row(
         InlineKeyboardButton(text="📢 Объявление классу", callback_data="teacher:announce"),
     )
+    builder.row(
+        InlineKeyboardButton(text="👥 Мои классы", callback_data="teacher:my_classes"),
+        InlineKeyboardButton(text="📋 История рассылок", callback_data="teacher:history"),
+    )
     return builder.as_markup()
 
 

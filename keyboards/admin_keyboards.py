@@ -23,6 +23,10 @@ def get_admin_main_menu() -> InlineKeyboardMarkup:
     )
     builder.row(
         InlineKeyboardButton(text="👥 Ученики", callback_data="menu:students"),
+        InlineKeyboardButton(text="📈 Статистика", callback_data="menu:stats"),
+    )
+    builder.row(
+        InlineKeyboardButton(text="🚀 Разослать табели вручную", callback_data="menu:mailing_now"),
     )
     return builder.as_markup()
 
@@ -179,8 +183,18 @@ def get_question_actions_keyboard(question_id: int, answered: bool) -> InlineKey
             InlineKeyboardButton(text="✏️ Ответить", callback_data=f"question_answer:{question_id}"),
         )
     builder.row(
-        InlineKeyboardButton(text="🗑 Удалить", callback_data=f"question_delete:{question_id}"),
+        InlineKeyboardButton(text="🗑 Удалить", callback_data=f"question_delete_ask:{question_id}"),
         InlineKeyboardButton(text="◀️ Назад", callback_data="questions_back"),
+    )
+    return builder.as_markup()
+
+
+def get_question_delete_confirm_keyboard(question_id: int) -> InlineKeyboardMarkup:
+    """Подтверждение удаления вопроса."""
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="✅ Да, удалить", callback_data=f"question_delete:{question_id}"),
+        InlineKeyboardButton(text="◀️ Отмена", callback_data=f"question_view:{question_id}"),
     )
     return builder.as_markup()
 
@@ -198,4 +212,24 @@ def get_answer_audience_keyboard(classes: List[str]) -> InlineKeyboardMarkup:
 def get_cancel_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data="admin_cancel"))
+    return builder.as_markup()
+
+
+def get_stats_class_keyboard(classes: List[str]) -> InlineKeyboardMarkup:
+    """Выбор класса для просмотра статистики."""
+    builder = InlineKeyboardBuilder()
+    for cls in classes:
+        builder.button(text=cls, callback_data=f"stats_class:{cls}")
+    builder.adjust(3)
+    builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="admin_cancel"))
+    return builder.as_markup()
+
+
+def get_mailing_confirm_keyboard() -> InlineKeyboardMarkup:
+    """Подтверждение ручной рассылки табелей."""
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="✅ Разослать всем", callback_data="mailing_now_confirm"),
+        InlineKeyboardButton(text="❌ Отмена", callback_data="admin_cancel"),
+    )
     return builder.as_markup()

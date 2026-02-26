@@ -34,8 +34,10 @@ from keyboards.admin_keyboards import (
     get_announcement_confirm_keyboard,
     get_questions_keyboard,
     get_question_actions_keyboard,
-    get_answer_audience_keyboard,
+    get_question_delete_confirm_keyboard,
     get_cancel_keyboard,
+    get_stats_class_keyboard,
+    get_mailing_confirm_keyboard,
 )
 from services.mailing_service import MailingService
 from services.excel_import_service import parse_grades_excel, generate_template_excel
@@ -247,10 +249,12 @@ async def confirm_grades(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     data = await state.get_data()
     result = data["parsed_result"]
-    grade_repo.bulk_insert_grades(result["grades"])
+    inserted = grade_repo.bulk_insert_grades(result["grades"])
+    duplicates = result["count"] - inserted
     await state.clear()
+    dup_text = f"\n⚠️ Пропущено дублей: {duplicates}" if duplicates else ""
     await callback.message.edit_text(
-        f"✅ Оценки сохранены: {result['count']} записей.",
+        f"✅ Оценки сохранены: {inserted} записей.{dup_text}",
         reply_markup=get_admin_main_menu(),
     )
 
@@ -327,23 +331,9 @@ async def event_enter_date(message: Message, state: FSMContext):
         await message.answer("Неверный формат. Введи дату в формате ДД.ММ.ГГГГ (например: 15.03.2025)")
         return
     await state.update_data(event_date=date_str)
-    await state.set_state(AdminCreateEvent.entering_slots)
-    await message.answer(
-        "Временные слоты через запятую (например: 10:30, 14:30, 16:00):",
-        reply_markup=get_cancel_keyboard(),
-    )
-
-
-@router.message(AdminCreateEvent.entering_slots)
-async def event_enter_slots(message: Message, state: FSMContext):
-    slots = [s.strip() for s in message.text.split(",") if s.strip()]
-    if not slots:
-        await message.answer("Назови хотя бы один слот.")
-        return
-    await state.update_data(event_slots=slots)
     await state.set_state(AdminCreateEvent.selecting_limit)
     await message.answer(
-        "Лимит участников от класса на каждый слот:",
+        "Лимит участников от класса:",
         reply_markup=get_event_limit_keyboard(),
     )
 
@@ -399,7 +389,6 @@ async def show_event_preview(message, state: FSMContext, edit=False):
     text = (
         f"<b>{data['event_title']}</b>\n"
         f"Дата: {data['event_date']}\n"
-        f"Слоты: {', '.join(data['event_slots'])}\n"
         f"{limit_text}"
         + (f"\n\n{desc}" if desc else "")
         + "\n\nСоздать мероприятие?"
@@ -418,7 +407,7 @@ async def confirm_create_event(callback: CallbackQuery, state: FSMContext, bot: 
     event_repo.create_event(
         title=data["event_title"],
         date=data["event_date"],
-        time_slots=data["event_slots"],
+        time_slots=[""],
         created_by=callback.from_user.id,
         class_limit=data.get("event_limit"),
         description=data.get("event_description"),
@@ -446,18 +435,16 @@ async def admin_view_event(callback: CallbackQuery):
     if not event:
         await callback.message.edit_text("Мероприятие не найдено.")
         return
-    regs = event_repo.get_registrations_by_event(event_id)
-    total = event_repo.get_total_registrations(event_id)
-    text = f"<b>{event['title']}</b> — {event['date']}\nСлоты: {', '.join(event['time_slots'])}\nВсего записалось: <b>{total}</b>\n\n"
-    for slot, participants in regs.items():
-        classes_str = {}
+    participants = event_repo.get_all_registrations(event_id)
+    total = len(participants)
+    text = f"<b>{event['title']}</b> — {event['date']}\nЗаписалось: <b>{total}</b>\n\n"
+    if participants:
+        by_class = {}
         for p in participants:
-            classes_str.setdefault(p["class"], []).append(p["student_name"].split()[0])
-        text += f"<b>{slot}</b> ({len(participants)} чел.):\n"
-        for cls, names in classes_str.items():
-            preview = ", ".join(names[:3]) + (f" и ещё {len(names)-3}" if len(names) > 3 else "")
-            text += f"  {cls}: {preview}\n"
-        text += "\n"
+            by_class.setdefault(p["class"], []).append(p["student_name"])
+        for cls, names in sorted(by_class.items()):
+            text += f"<b>{cls}</b> ({len(names)} чел.):\n"
+            text += ", ".join(names) + "\n\n"
     await callback.message.edit_text(
         text, parse_mode="HTML",
         reply_markup=get_event_manage_keyboard(event_id, bool(event.get("is_active"))),
@@ -585,36 +572,38 @@ async def start_answer_question(callback: CallbackQuery, state: FSMContext):
 
 
 @router.message(AdminAnswerQuestion.entering_answer)
-async def answer_enter_text(message: Message, state: FSMContext):
-    await state.update_data(answer_text=message.text.strip())
-    classes = get_all_classes()
-    await state.set_state(AdminAnswerQuestion.selecting_audience)
-    await message.answer(
-        "Кому отправить ответ?",
-        reply_markup=get_answer_audience_keyboard(classes),
-    )
-
-
-@router.callback_query(AdminAnswerQuestion.selecting_audience, F.data.startswith("answer_target:"))
-async def confirm_answer(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    await callback.answer()
-    target = callback.data.split(":", 1)[1]
+async def answer_enter_text(message: Message, state: FSMContext, bot: Bot):
     data = await state.get_data()
     q_id = data["answering_question_id"]
-    answer = data["answer_text"]
+    answer = message.text.strip()
     q = anon_repo.get_by_id(q_id)
     anon_repo.answer(q_id, answer)
-    send_text = f"💬 Ответ на вопрос:\n\n<i>{q['text']}</i>\n\n{answer}"
-    if target == "all":
-        recipients = [(uid, name) for uid, name, _ in user_repo.get_all_students()]
-    else:
-        recipients = user_repo.get_students_by_class(target)
-    mailing = MailingService(bot)
-    sent, _ = await mailing.send_text_to_users(recipients, send_text)
+    send_text = f"💬 Ответ на твой вопрос:\n\n<i>{q['text']}</i>\n\n{answer}"
+    sent = 0
+    asker_id = q.get("asker_user_id")
+    if asker_id:
+        try:
+            await bot.send_message(asker_id, send_text, parse_mode="HTML")
+            sent = 1
+        except Exception:
+            pass
     await state.clear()
+    result = (
+        "✅ Ответ отправлен автору вопроса."
+        if sent
+        else "✅ Ответ сохранён (не удалось доставить — пользователь мог заблокировать бота)."
+    )
+    await message.answer(result, reply_markup=get_admin_main_menu())
+
+
+@router.callback_query(F.data.startswith("question_delete_ask:"))
+async def ask_delete_question(callback: CallbackQuery):
+    """Запрос подтверждения перед удалением вопроса."""
+    await callback.answer()
+    q_id = int(callback.data.split(":")[1])
     await callback.message.edit_text(
-        f"✅ Ответ отправлен {sent} ученикам.",
-        reply_markup=get_admin_main_menu(),
+        "Удалить этот вопрос? Это действие нельзя отменить.",
+        reply_markup=get_question_delete_confirm_keyboard(q_id),
     )
 
 
@@ -634,3 +623,119 @@ async def back_to_questions(callback: CallbackQuery):
         await callback.message.edit_text("Вопросов пока нет.", reply_markup=get_admin_main_menu())
         return
     await callback.message.edit_text("Анонимные вопросы:", reply_markup=get_questions_keyboard(questions))
+
+
+# ── Экспорт участников мероприятия ────────────────────────────────────────────
+
+@router.callback_query(F.data.startswith("event_export:"))
+async def export_event_participants(callback: CallbackQuery):
+    await callback.answer()
+    event_id = int(callback.data.split(":")[1])
+    event = event_repo.get_event(event_id)
+    if not event:
+        await callback.message.edit_text("Мероприятие не найдено.")
+        return
+    regs = event_repo.get_registrations_by_event(event_id)
+    total = event_repo.get_total_registrations(event_id)
+
+    lines = [f"Мероприятие: {event['title']}", f"Дата: {event['date']}", f"Всего участников: {total}", ""]
+    for slot in event["time_slots"]:
+        participants = regs.get(slot, [])
+        lines.append(f"=== {slot} ({len(participants)} чел.) ===")
+        for p in participants:
+            lines.append(f"  {p['student_name']} ({p['class']})")
+        lines.append("")
+
+    text_content = "\n".join(lines)
+    file = BufferedInputFile(
+        text_content.encode("utf-8"),
+        filename=f"участники_{event['title']}_{event['date']}.txt",
+    )
+    await callback.message.answer_document(
+        file,
+        caption=f"Список участников: {event['title']}",
+    )
+
+
+# ── Статистика по классу ───────────────────────────────────────────────────────
+
+@router.callback_query(F.data == "menu:stats")
+async def menu_stats(callback: CallbackQuery):
+    if not _is_admin(callback.from_user.id):
+        await callback.answer("Нет доступа.", show_alert=True)
+        return
+    await callback.answer()
+    classes = get_all_classes()
+    await callback.message.edit_text(
+        "Выбери класс для просмотра статистики:",
+        reply_markup=get_stats_class_keyboard(classes),
+    )
+
+
+@router.callback_query(F.data.startswith("stats_class:"))
+async def stats_show_class(callback: CallbackQuery):
+    await callback.answer()
+    class_name = callback.data.split(":", 1)[1]
+    stats = grade_repo.get_class_statistics(class_name)
+    students = user_repo.get_students_by_class(class_name)
+
+    avg = stats.get("average_grade")
+    avg_text = f"{avg:.2f}" if avg else "нет данных"
+
+    counts = stats.get("grade_counts", {})
+    dist_lines = []
+    for g in ("5", "4", "3", "2"):
+        cnt = counts.get(g, 0)
+        if cnt:
+            dist_lines.append(f"  «{g}» — {cnt} шт.")
+
+    text = (
+        f"<b>Статистика: {class_name}</b>\n"
+        f"Учеников в системе: {len(students)}\n\n"
+        f"Средний балл: <b>{avg_text}</b>\n"
+    )
+    if dist_lines:
+        text += "Распределение оценок:\n" + "\n".join(dist_lines)
+    else:
+        text += "Оценок ещё не выставлено."
+
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=get_admin_main_menu())
+
+
+# ── Ручная рассылка табелей ───────────────────────────────────────────────────
+
+@router.callback_query(F.data == "menu:mailing_now")
+async def menu_mailing_now(callback: CallbackQuery):
+    if not _is_admin(callback.from_user.id):
+        await callback.answer("Нет доступа.", show_alert=True)
+        return
+    await callback.answer()
+    count = len(user_repo.get_all_students())
+    await callback.message.edit_text(
+        f"Разослать табели всем <b>{count}</b> ученикам прямо сейчас?",
+        parse_mode="HTML",
+        reply_markup=get_mailing_confirm_keyboard(),
+    )
+
+
+@router.callback_query(F.data == "mailing_now_confirm")
+async def mailing_now_confirm(callback: CallbackQuery, bot: Bot):
+    await callback.answer()
+    students = user_repo.get_all_students()
+    progress_msg = await callback.message.edit_text(f"Начинаю рассылку... 0/{len(students)}")
+    last_update = [0]
+
+    async def on_progress(done, total):
+        if done - last_update[0] >= 5 or done == total:
+            last_update[0] = done
+            try:
+                await progress_msg.edit_text(f"📤 Отправлено: {done}/{total}")
+            except Exception:
+                pass
+
+    mailing = MailingService(bot)
+    sent, failed = await mailing.send_grade_cards(students, on_progress)
+    await progress_msg.edit_text(
+        f"✅ Рассылка завершена.\nОтправлено: {sent}. Ошибок: {failed}.",
+        reply_markup=get_admin_main_menu(),
+    )

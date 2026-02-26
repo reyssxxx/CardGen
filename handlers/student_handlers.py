@@ -16,7 +16,7 @@ from handlers.states import StudentAnonQuestion
 from keyboards.student_keyboards import (
     get_student_main_menu,
     get_events_keyboard,
-    get_event_slots_keyboard,
+    get_event_action_keyboard,
     get_cancel_registration_keyboard,
     get_question_confirm_keyboard,
 )
@@ -157,23 +157,24 @@ async def view_event(callback: CallbackQuery):
         await callback.message.edit_text("Мероприятие не найдено.")
         return
     class_name = user["class"]
-    registered = event_repo.get_user_registrations(event_id, callback.from_user.id)
-    unavailable = [
-        s for s in event["time_slots"]
-        if not event_repo.is_slot_available(event_id, s, class_name, event.get("class_limit"))
-           and s not in registered
-    ]
+    is_registered = event_repo.is_registered(event_id, callback.from_user.id)
+    is_full = not is_registered and not event_repo.is_event_available(
+        event_id, class_name, event.get("class_limit")
+    )
+    total = event_repo.get_total_registrations(event_id)
     desc = event.get("description") or ""
     limit_text = f"\nЛимит от класса: {event['class_limit']} чел." if event.get("class_limit") else ""
+    registered_text = f"\nЗаписалось: {total} чел." if total else ""
+    status_text = "✅ Ты записан!" if is_registered else ("🔒 Мест от вашего класса нет." if is_full else "")
     text = (
         f"<b>{event['title']}</b>\n"
-        f"Дата: {event['date']}{limit_text}"
+        f"Дата: {event['date']}{limit_text}{registered_text}"
         + (f"\n\n{desc}" if desc else "")
-        + "\n\nВыбери временной слот:"
+        + (f"\n\n{status_text}" if status_text else "")
     )
     await callback.message.edit_text(
         text, parse_mode="HTML",
-        reply_markup=get_event_slots_keyboard(event_id, event["time_slots"], unavailable, registered),
+        reply_markup=get_event_action_keyboard(event_id, is_registered, is_full),
     )
 
 
@@ -183,47 +184,46 @@ async def register_for_event(callback: CallbackQuery):
     user = _get_student(callback.from_user.id)
     if not user:
         return
-    _, event_id_str, slot = callback.data.split(":", 2)
-    event_id = int(event_id_str)
+    event_id = int(callback.data.split(":")[1])
     event = event_repo.get_event(event_id)
     if not event:
         return
     class_name = user["class"]
-    if not event_repo.is_slot_available(event_id, slot, class_name, event.get("class_limit")):
+    if not event_repo.is_event_available(event_id, class_name, event.get("class_limit")):
         await callback.answer("Мест нет — лимит от вашего класса исчерпан.", show_alert=True)
         return
-    success = event_repo.register(event_id, callback.from_user.id, slot, user["ФИ"], class_name)
+    success = event_repo.register(event_id, callback.from_user.id, "", user["ФИ"], class_name)
     if success:
-        await callback.answer(f"Ты записан на {slot}! ✅", show_alert=True)
+        await callback.answer("Ты записан! ✅", show_alert=True)
     else:
-        await callback.answer("Ты уже записан на этот слот.", show_alert=True)
+        await callback.answer("Ты уже записан на это мероприятие.", show_alert=True)
     await view_event(callback)
 
 
 @router.callback_query(F.data.startswith("event_full:"))
-async def slot_full(callback: CallbackQuery):
+async def event_full(callback: CallbackQuery):
     await callback.answer("Мест нет — лимит от вашего класса исчерпан.", show_alert=True)
 
 
 @router.callback_query(F.data.startswith("event_cancel:"))
 async def ask_cancel_registration(callback: CallbackQuery):
     await callback.answer()
-    _, event_id_str, slot = callback.data.split(":", 2)
-    event_id = int(event_id_str)
+    event_id = int(callback.data.split(":")[1])
+    event = event_repo.get_event(event_id)
+    title = event["title"] if event else "мероприятие"
     await callback.message.edit_text(
-        f"Ты записан на <b>{slot}</b>. Отменить запись?",
+        f"Отменить запись на <b>{title}</b>?",
         parse_mode="HTML",
-        reply_markup=get_cancel_registration_keyboard(event_id, slot),
+        reply_markup=get_cancel_registration_keyboard(event_id),
     )
 
 
 @router.callback_query(F.data.startswith("event_cancel_confirm:"))
 async def confirm_cancel_registration(callback: CallbackQuery):
     await callback.answer()
-    _, event_id_str, slot = callback.data.split(":", 2)
-    event_id = int(event_id_str)
-    event_repo.unregister(event_id, callback.from_user.id, slot)
-    await callback.answer(f"Запись на {slot} отменена.", show_alert=True)
+    event_id = int(callback.data.split(":")[1])
+    event_repo.unregister_from_event(event_id, callback.from_user.id)
+    await callback.answer("Запись отменена.", show_alert=True)
     await view_event(callback)
 
 
@@ -259,7 +259,7 @@ async def confirm_anon_question(callback: CallbackQuery, state: FSMContext, bot:
     await callback.answer()
     data = await state.get_data()
     text = data["question_text"]
-    question_id = anon_repo.create(text)
+    question_id = anon_repo.create(text, asker_user_id=callback.from_user.id)
     await state.clear()
 
     # Получаем имя и класс ученика

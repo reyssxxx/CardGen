@@ -1,13 +1,16 @@
 """
 Сервис импорта оценок из Excel и генерации шаблонов.
 """
-import re
+import difflib
+import io
+import logging
 from datetime import datetime
 from typing import Optional
 import openpyxl
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-import io
+
+logger = logging.getLogger(__name__)
 
 
 VALID_GRADES = {'2', '3', '4', '5', 'н', 'б'}
@@ -70,11 +73,12 @@ def parse_grades_excel(file_path: str, class_name: str, valid_students: list) ->
         if not student_raw or not subject:
             continue
 
-        # Fuzzy-match имя
+        # Fuzzy-match имя (точное или близкое совпадение)
         matched_name = _match_name(student_raw, valid_lower)
         if not matched_name:
             if student_raw not in skipped:
                 skipped.append(student_raw)
+                logger.debug("Name not matched: %r", student_raw)
             continue
 
         # Парсим оценки по датам
@@ -197,6 +201,18 @@ def _parse_date(value: str) -> Optional[datetime]:
 
 
 def _match_name(raw: str, valid_lower: dict) -> Optional[str]:
-    """Точное или case-insensitive совпадение имени."""
+    """
+    Точное (case-insensitive) или нечёткое совпадение имени.
+    Порог похожести: 0.82 — позволяет исправлять опечатки в 1-2 символа.
+    """
     key = raw.lower().strip()
-    return valid_lower.get(key)
+    # Сначала пробуем точное совпадение
+    if key in valid_lower:
+        return valid_lower[key]
+    # Fuzzy-поиск через difflib
+    matches = difflib.get_close_matches(key, valid_lower.keys(), n=1, cutoff=0.82)
+    if matches:
+        matched_key = matches[0]
+        logger.debug("Fuzzy matched %r → %r", raw, valid_lower[matched_key])
+        return valid_lower[matched_key]
+    return None
