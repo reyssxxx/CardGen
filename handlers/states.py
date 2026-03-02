@@ -49,6 +49,14 @@ class AdminSendCards(StatesGroup):
     confirming = State()
 
 
+class AdminGradeManagement(StatesGroup):
+    """Состояния для управления оценками (удаление, редактирование)"""
+    selecting_class = State()
+    selecting_student = State()
+    confirming_delete = State()
+    entering_new_grade = State()
+
+
 class StudentAnonQuestion(StatesGroup):
     """Состояния для отправки анонимного вопроса"""
     entering_question = State()

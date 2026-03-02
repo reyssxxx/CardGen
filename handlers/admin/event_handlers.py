@@ -17,8 +17,14 @@ from keyboards.admin_keyboards import (
     get_event_manage_keyboard,
     get_cancel_keyboard,
 )
+from utils.pagination import paginate
 
 router = Router()
+
+
+def _events_page_markup(events, page):
+    page_items, has_prev, has_next = paginate(events, page)
+    return get_admin_events_keyboard(page_items, page=page, has_prev=has_prev, has_next=has_next)
 
 
 # ── Создание мероприятия ──────────────────────────────────────────────────────
@@ -152,7 +158,18 @@ async def menu_events_admin(callback: CallbackQuery):
     if not events:
         await callback.message.edit_text("Мероприятий пока нет.", reply_markup=get_admin_main_menu())
         return
-    await callback.message.edit_text("Мероприятия:", reply_markup=get_admin_events_keyboard(events))
+    await callback.message.edit_text("Мероприятия:", reply_markup=_events_page_markup(events, 0))
+
+
+@router.callback_query(F.data.startswith("admin_events_page:"))
+async def admin_events_paginate(callback: CallbackQuery):
+    await callback.answer()
+    page = int(callback.data.split(":")[1])
+    events = event_repo.get_all_events()
+    if not events:
+        await callback.message.edit_text("Мероприятий нет.", reply_markup=get_admin_main_menu())
+        return
+    await callback.message.edit_text("Мероприятия:", reply_markup=_events_page_markup(events, page))
 
 
 @router.callback_query(F.data.startswith("admin_event_view:"))
@@ -194,7 +211,7 @@ async def back_to_events_list(callback: CallbackQuery):
     if not events:
         await callback.message.edit_text("Мероприятий нет.", reply_markup=get_admin_main_menu())
         return
-    await callback.message.edit_text("Мероприятия:", reply_markup=get_admin_events_keyboard(events))
+    await callback.message.edit_text("Мероприятия:", reply_markup=_events_page_markup(events, 0))
 
 
 @router.callback_query(F.data.startswith("event_export:"))

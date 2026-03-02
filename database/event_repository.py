@@ -158,3 +158,62 @@ class EventRepository:
             return cursor.fetchone()[0]
         finally:
             conn.close()
+
+    def get_user_events(self, user_id: int) -> list:
+        """Активные мероприятия, на которые записан пользователь."""
+        conn = self._conn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT Events.*
+                FROM Events
+                JOIN EventRegistrations ON Events.id = EventRegistrations.event_id
+                WHERE EventRegistrations.user_id = ? AND Events.is_active = 1
+                ORDER BY Events.date ASC
+            ''', (user_id,))
+            return [dict(row) for row in cursor.fetchall()]
+        finally:
+            conn.close()
+
+    def get_registered_user_ids(self, event_id: int) -> list:
+        """Список user_id всех записавшихся на мероприятие."""
+        conn = self._conn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT user_id FROM EventRegistrations WHERE event_id = ?', (event_id,))
+            return [row[0] for row in cursor.fetchall()]
+        finally:
+            conn.close()
+
+    def get_events_for_date(self, date_str: str) -> list:
+        """Активные мероприятия на указанную дату (формат DD.MM.YYYY)."""
+        conn = self._conn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT * FROM Events WHERE date = ? AND is_active = 1', (date_str,))
+            return [dict(row) for row in cursor.fetchall()]
+        finally:
+            conn.close()
+
+    def get_expired_active_events(self) -> list:
+        """Активные мероприятия с уже прошедшей датой."""
+        from datetime import date as date_cls, datetime
+        today = date_cls.today()
+        conn = self._conn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM Events WHERE is_active = 1')
+            expired = []
+            for row in cursor.fetchall():
+                event = dict(row)
+                try:
+                    event_date = datetime.strptime(event['date'], '%d.%m.%Y').date()
+                    if event_date < today:
+                        expired.append(event)
+                except ValueError:
+                    pass
+            return expired
+        finally:
+            conn.close()

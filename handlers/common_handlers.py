@@ -130,7 +130,10 @@ async def start_student_registration(callback: CallbackQuery, state: FSMContext)
     await callback.answer()
     classes = get_all_classes()
     if not classes:
-        await callback.message.edit_text("Список классов пуст. Обратись к администратору.")
+        await callback.message.edit_text(
+            "Список классов пуст. Обратись к администратору.",
+            reply_markup=get_cancel_keyboard("reg_cancel"),
+        )
         return
     await state.set_state(RegistrationStates.selecting_class)
     await callback.message.edit_text(
@@ -189,9 +192,18 @@ async def confirm_registration(callback: CallbackQuery, state: FSMContext):
             reply_markup=get_student_main_menu(),
         )
     else:
-        await state.clear()
+        # Не чистим FSM — пользователь может вернуться к выбору имени через reg_back_name
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+        from aiogram.types import InlineKeyboardButton
+        kb = InlineKeyboardBuilder()
+        kb.row(
+            InlineKeyboardButton(text="◀️ Выбрать другое имя", callback_data="reg_back_name"),
+            InlineKeyboardButton(text="❌ Отмена", callback_data="reg_cancel"),
+        )
         await callback.message.edit_text(
-            "Это имя уже занято другим пользователем.\nЕсли это ошибка — обратись к администратору.",
+            "⚠️ Это имя уже занято другим пользователем.\n"
+            "Выбери другое имя или обратись к администратору.",
+            reply_markup=kb.as_markup(),
         )
 
 
@@ -227,6 +239,7 @@ async def teacher_not_in_list(callback: CallbackQuery):
         "Попроси администратора добавить твой Telegram ID в список учителей.\n"
         "Твой ID: <code>{}</code>".format(callback.from_user.id),
         parse_mode="HTML",
+        reply_markup=get_cancel_keyboard("reg_cancel"),
     )
 
 
@@ -234,4 +247,7 @@ async def teacher_not_in_list(callback: CallbackQuery):
 async def cancel_registration(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.clear()
-    await callback.message.edit_text("Регистрация отменена. Чтобы начать снова — /start")
+    await callback.message.edit_text(
+        "Привет! Добро пожаловать в бот Лицея ЮФУ.\n\nВыбери свою роль:",
+        reply_markup=get_registration_keyboard(),
+    )

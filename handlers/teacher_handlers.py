@@ -11,11 +11,13 @@ from aiogram.fsm.context import FSMContext
 
 from database.user_repository import UserRepository
 from database.announcement_repository import AnnouncementRepository
+from database.grade_repository import GradeRepository
 from handlers.states import TeacherSendAnnouncement
 from keyboards.teacher_keyboards import (
     get_teacher_main_menu,
     get_teacher_class_keyboard,
     get_teacher_announcement_confirm_keyboard,
+    get_teacher_grades_class_keyboard,
 )
 from keyboards.common_keyboards import get_cancel_keyboard
 from services.mailing_service import MailingService
@@ -25,6 +27,7 @@ router = Router()
 
 user_repo = UserRepository()
 announce_repo = AnnouncementRepository()
+grade_repo = GradeRepository()
 
 
 def _get_teacher(user_id: int) -> dict | None:
@@ -90,6 +93,58 @@ async def teacher_history(callback: CallbackQuery):
         short = ann["text"][:100] + ("..." if len(ann["text"]) > 100 else "")
         text += f"<b>{dt} → {target}</b>\n{short}\n\n"
     await callback.message.edit_text(text.strip(), parse_mode="HTML", reply_markup=get_teacher_main_menu())
+
+
+# ── Успеваемость ──────────────────────────────────────────────────────────────
+
+@router.callback_query(F.data == "teacher:grades")
+async def teacher_grades(callback: CallbackQuery):
+    await callback.answer()
+    user_id = callback.from_user.id
+    if not _get_teacher(user_id):
+        return
+    classes = get_teacher_classes(user_id)
+    if not classes:
+        await callback.message.edit_text(
+            "У тебя нет привязанных классов. Обратись к администратору.",
+            reply_markup=get_teacher_main_menu(),
+        )
+        return
+    await callback.message.edit_text(
+        "Выбери класс для просмотра успеваемости:",
+        reply_markup=get_teacher_grades_class_keyboard(classes),
+    )
+
+
+@router.callback_query(F.data.startswith("teacher_grades_class:"))
+async def teacher_grades_class(callback: CallbackQuery):
+    await callback.answer()
+    if not _get_teacher(callback.from_user.id):
+        return
+    class_name = callback.data.split(":", 1)[1]
+    averages = grade_repo.get_per_student_averages(class_name)
+    stats = grade_repo.get_class_statistics(class_name)
+    if not averages:
+        await callback.message.edit_text(
+            f"По классу <b>{class_name}</b> оценок ещё нет.",
+            parse_mode="HTML",
+            reply_markup=get_teacher_main_menu(),
+        )
+        return
+    lines = [f"📊 <b>Успеваемость класса {class_name}</b>\n"]
+    for row in averages:
+        name = row['student_name']
+        avg = row['avg']
+        avg_str = f"{avg:.2f}" if avg is not None else "—"
+        lines.append(f"{name}  —  <b>{avg_str}</b>")
+    class_avg = stats.get('average_grade')
+    if class_avg:
+        lines.append(f"\nСредний по классу: <b>{class_avg:.2f}</b>")
+    await callback.message.edit_text(
+        "\n".join(lines),
+        parse_mode="HTML",
+        reply_markup=get_teacher_main_menu(),
+    )
 
 
 # ── Объявления ────────────────────────────────────────────────────────────────

@@ -21,8 +21,14 @@ from keyboards.admin_keyboards import (
 )
 from services.mailing_service import MailingService
 from utils.config_loader import get_all_classes
+from utils.pagination import paginate
 
 router = Router()
+
+
+def _questions_page_markup(questions, page):
+    page_items, has_prev, has_next = paginate(questions, page)
+    return get_questions_keyboard(page_items, page=page, has_prev=has_prev, has_next=has_next)
 
 
 # ── Отмена ────────────────────────────────────────────────────────────────────
@@ -141,6 +147,16 @@ async def confirm_announcement(callback: CallbackQuery, state: FSMContext, bot: 
 
 # ── Анонимные вопросы ─────────────────────────────────────────────────────────
 
+def _questions_header() -> str:
+    stats = anon_repo.get_stats()
+    return (
+        f"❓ <b>Анонимные вопросы</b>\n"
+        f"Всего: {stats['total']} | "
+        f"Без ответа: {stats['unanswered']} | "
+        f"Отвечено: {stats['answered']}"
+    )
+
+
 @router.callback_query(F.data == "menu:questions")
 async def menu_questions(callback: CallbackQuery):
     if not is_admin(callback.from_user.id):
@@ -148,10 +164,23 @@ async def menu_questions(callback: CallbackQuery):
         return
     await callback.answer()
     questions = anon_repo.get_all()
+    header = _questions_header()
     if not questions:
-        await callback.message.edit_text("Вопросов пока нет.", reply_markup=get_admin_main_menu())
+        await callback.message.edit_text(header + "\n\nВопросов пока нет.", parse_mode="HTML", reply_markup=get_admin_main_menu())
         return
-    await callback.message.edit_text("Анонимные вопросы:", reply_markup=get_questions_keyboard(questions))
+    await callback.message.edit_text(header, parse_mode="HTML", reply_markup=_questions_page_markup(questions, 0))
+
+
+@router.callback_query(F.data.startswith("questions_page:"))
+async def questions_paginate(callback: CallbackQuery):
+    await callback.answer()
+    page = int(callback.data.split(":")[1])
+    questions = anon_repo.get_all()
+    header = _questions_header()
+    if not questions:
+        await callback.message.edit_text(header + "\n\nВопросов пока нет.", parse_mode="HTML", reply_markup=get_admin_main_menu())
+        return
+    await callback.message.edit_text(header, parse_mode="HTML", reply_markup=_questions_page_markup(questions, page))
 
 
 @router.callback_query(F.data.startswith("question_view:"))
@@ -225,10 +254,11 @@ async def delete_question(callback: CallbackQuery):
 async def back_to_questions(callback: CallbackQuery):
     await callback.answer()
     questions = anon_repo.get_all()
+    header = _questions_header()
     if not questions:
-        await callback.message.edit_text("Вопросов пока нет.", reply_markup=get_admin_main_menu())
+        await callback.message.edit_text(header + "\n\nВопросов пока нет.", parse_mode="HTML", reply_markup=get_admin_main_menu())
         return
-    await callback.message.edit_text("Анонимные вопросы:", reply_markup=get_questions_keyboard(questions))
+    await callback.message.edit_text(header, parse_mode="HTML", reply_markup=_questions_page_markup(questions, 0))
 
 
 # ── Статистика по классу ───────────────────────────────────────────────────────

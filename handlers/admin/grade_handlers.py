@@ -81,7 +81,7 @@ async def ask_for_excel_file(callback: CallbackQuery, state: FSMContext):
 async def process_excel_file(message: Message, state: FSMContext, bot: Bot):
     doc = message.document
     if not doc.file_name.endswith(".xlsx"):
-        await message.answer("Отправь файл формата .xlsx")
+        await message.answer("Отправь файл формата .xlsx", reply_markup=get_cancel_keyboard())
         return
     data = await state.get_data()
     class_name = data["selected_class"]
@@ -116,10 +116,11 @@ async def process_excel_file(message: Message, state: FSMContext, bot: Bot):
 
 
 @router.callback_query(AdminGradeUpload.confirming, F.data == "grade_confirm")
-async def confirm_grades(callback: CallbackQuery, state: FSMContext):
+async def confirm_grades(callback: CallbackQuery, state: FSMContext, bot: Bot):
     await callback.answer()
     data = await state.get_data()
     result = data["parsed_result"]
+    class_name = data.get("selected_class", "")
     inserted = grade_repo.bulk_insert_grades(result["grades"])
     duplicates = result["count"] - inserted
     await state.clear()
@@ -128,6 +129,28 @@ async def confirm_grades(callback: CallbackQuery, state: FSMContext):
         f"✅ Оценки сохранены: {inserted} записей.{dup_text}",
         reply_markup=get_admin_main_menu(),
     )
+
+    if inserted == 0 or not class_name:
+        return
+
+    # Инвалидируем кэш и уведомляем учеников класса
+    students = user_repo.get_students_by_class(class_name)
+    for uid, name, _ in students:
+        hash_file = f"./data/grade_cards/{name}.png.hash"
+        if os.path.exists(hash_file):
+            try:
+                os.remove(hash_file)
+            except OSError:
+                pass
+        try:
+            await bot.send_message(
+                uid,
+                f"📊 Администратор загрузил новые оценки для класса <b>{class_name}</b>.\n"
+                "Ты можешь посмотреть свой табель в главном меню.",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
 
 
 # ── Рассылка табелей ──────────────────────────────────────────────────────────

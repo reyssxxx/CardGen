@@ -17,6 +17,9 @@ def get_student_main_menu() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="📢 Объявления", callback_data="menu:announcements"),
         InlineKeyboardButton(text="❓ Задать вопрос", callback_data="menu:question"),
     )
+    builder.row(
+        InlineKeyboardButton(text="📌 Мои записи", callback_data="menu:my_events"),
+    )
     return builder.as_markup()
 
 
@@ -53,6 +56,20 @@ def get_cancel_registration_keyboard(event_id: int) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="✅ Да, отменить", callback_data=f"event_cancel_confirm:{event_id}"),
         InlineKeyboardButton(text="❌ Нет", callback_data=f"event_view:{event_id}"),
     )
+    return builder.as_markup()
+
+
+def get_my_events_keyboard(events: List[dict]) -> InlineKeyboardMarkup:
+    """Список мероприятий, на которые записан ученик."""
+    builder = InlineKeyboardBuilder()
+    for event in events:
+        builder.row(
+            InlineKeyboardButton(
+                text=f"📅 {event['title']} — {event['date']}",
+                callback_data=f"event_view:{event['id']}",
+            )
+        )
+    builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="menu:back_student"))
     return builder.as_markup()
 
 

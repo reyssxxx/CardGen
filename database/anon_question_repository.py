@@ -79,6 +79,27 @@ class AnonQuestionRepository:
         finally:
             conn.close()
 
+    def get_stats(self) -> dict:
+        """Статистика вопросов: total / answered / unanswered."""
+        conn = self._conn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN answered = 1 THEN 1 ELSE 0 END) AS answered,
+                    SUM(CASE WHEN answered = 0 THEN 1 ELSE 0 END) AS unanswered
+                FROM AnonQuestions
+            ''')
+            row = cursor.fetchone()
+            return {
+                'total': row['total'] or 0,
+                'answered': row['answered'] or 0,
+                'unanswered': row['unanswered'] or 0,
+            }
+        finally:
+            conn.close()
+
     def delete(self, question_id: int):
         """Удалить вопрос."""
         conn = self._conn()
