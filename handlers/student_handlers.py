@@ -192,7 +192,7 @@ async def register_for_event(callback: CallbackQuery):
     if not event_repo.is_event_available(event_id, class_name, event.get("class_limit")):
         await callback.answer("Мест нет — лимит от вашего класса исчерпан.", show_alert=True)
         return
-    success = event_repo.register(event_id, callback.from_user.id, "", user["ФИ"], class_name)
+    success = event_repo.register(event_id, callback.from_user.id, user["ФИ"], class_name)
     if success:
         await callback.answer("Ты записан! ✅", show_alert=True)
     else:

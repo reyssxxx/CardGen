@@ -9,7 +9,8 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
 from database.db_manager import init_db
-from handlers import student_handlers, admin_handlers, common_handlers, teacher_handlers
+from handlers import student_handlers, common_handlers, teacher_handlers
+from handlers.admin import router as admin_handlers
 from services.scheduler_service import SchedulerService
 
 load_dotenv()
@@ -20,7 +21,7 @@ dp = Dispatcher()
 
 # Порядок роутеров важен: common → admin → teacher → student
 dp.include_router(common_handlers.router)
-dp.include_router(admin_handlers.router)
+dp.include_router(admin_handlers)
 dp.include_router(teacher_handlers.router)
 dp.include_router(student_handlers.router)
 

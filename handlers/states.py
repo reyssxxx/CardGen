@@ -49,12 +49,6 @@ class AdminSendCards(StatesGroup):
     confirming = State()
 
 
-class StudentEventRegistration(StatesGroup):
-    """Состояния для регистрации на мероприятие"""
-    selecting_event = State()
-    selecting_slot = State()
-
-
 class StudentAnonQuestion(StatesGroup):
     """Состояния для отправки анонимного вопроса"""
     entering_question = State()
