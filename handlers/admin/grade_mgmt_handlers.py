@@ -75,35 +75,65 @@ async def grade_mgmt_class(callback: CallbackQuery, state: FSMContext):
         return
     # Дедупликация и сортировка имён
     names = sorted({g["student_name"] for g in grades})
-    await state.update_data(grade_mgmt_class=class_name)
+    await state.update_data(grade_mgmt_class=class_name, grade_mgmt_students=names)
     await state.set_state(AdminGradeManagement.selecting_student)
     await callback.message.edit_text(
         f"Класс <b>{class_name}</b> — выбери ученика:",
         parse_mode="HTML",
-        reply_markup=get_grade_mgmt_students_keyboard(names, class_name),
+        reply_markup=get_grade_mgmt_students_keyboard(names),
     )
 
 
 # ── Список оценок ученика ─────────────────────────────────────────────────────
 
-@router.callback_query(F.data.startswith("grade_mgmt_student:"))
+@router.callback_query(F.data.startswith("grade_mgmt_si:"))
 async def grade_mgmt_student(callback: CallbackQuery, state: FSMContext):
+    """Выбор ученика по индексу из сохранённого в state списка."""
     await callback.answer()
     if not is_admin(callback.from_user.id):
         return
-    # callback_data: grade_mgmt_student:{student_name}:{class_name}
-    parts = callback.data.split(":", 2)
-    student_name = parts[1]
-    class_name = parts[2] if len(parts) > 2 else ""
+    idx = int(callback.data.split(":", 1)[1])
+    data = await state.get_data()
+    names = data.get("grade_mgmt_students", [])
+    class_name = data.get("grade_mgmt_class", "")
+    if idx >= len(names):
+        await callback.message.edit_text("Ошибка: ученик не найден.")
+        return
+    student_name = names[idx]
     grades = grade_repo.get_student_grades(student_name)
     if not grades:
         await callback.message.edit_text(
             f"У <b>{student_name}</b> оценок нет.",
             parse_mode="HTML",
-            reply_markup=get_grade_mgmt_students_keyboard([], class_name),
+            reply_markup=get_grade_mgmt_students_keyboard(names),
         )
         return
-    await state.update_data(grade_mgmt_student=student_name, grade_mgmt_class=class_name)
+    await state.update_data(grade_mgmt_student=student_name)
+    await callback.message.edit_text(
+        f"Оценки <b>{student_name}</b> ({class_name})\nВыбери запись:",
+        parse_mode="HTML",
+        reply_markup=get_grade_list_keyboard(grades, student_name, class_name),
+    )
+
+
+@router.callback_query(F.data == "grade_mgmt_student_back")
+async def grade_mgmt_student_back(callback: CallbackQuery, state: FSMContext):
+    """Возврат к списку оценок текущего ученика из state."""
+    await callback.answer()
+    if not is_admin(callback.from_user.id):
+        return
+    data = await state.get_data()
+    student_name = data.get("grade_mgmt_student", "")
+    class_name = data.get("grade_mgmt_class", "")
+    grades = grade_repo.get_student_grades(student_name)
+    if not grades:
+        names = data.get("grade_mgmt_students", [])
+        await callback.message.edit_text(
+            f"У <b>{student_name}</b> оценок нет.",
+            parse_mode="HTML",
+            reply_markup=get_grade_mgmt_students_keyboard(names),
+        )
+        return
     await callback.message.edit_text(
         f"Оценки <b>{student_name}</b> ({class_name})\nВыбери запись:",
         parse_mode="HTML",
@@ -139,7 +169,7 @@ async def grade_mgmt_view(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         text,
         parse_mode="HTML",
-        reply_markup=get_grade_actions_keyboard(grade_id, student_name, class_name),
+        reply_markup=get_grade_actions_keyboard(grade_id),
     )
 
 
@@ -200,13 +230,12 @@ async def grade_mgmt_del_confirm(callback: CallbackQuery, state: FSMContext):
             reply_markup=get_grade_list_keyboard(grades, student_name, class_name),
         )
     else:
+        names = sorted({g["student_name"] for g in grade_repo.get_grades_by_class(class_name)})
+        await state.update_data(grade_mgmt_students=names)
         await callback.message.edit_text(
             f"✅ Оценка удалена. У <b>{student_name}</b> больше нет оценок.\n\nВыбери другого ученика:",
             parse_mode="HTML",
-            reply_markup=get_grade_mgmt_students_keyboard(
-                sorted({g["student_name"] for g in grade_repo.get_grades_by_class(class_name)}),
-                class_name,
-            ),
+            reply_markup=get_grade_mgmt_students_keyboard(names),
         )
 
 

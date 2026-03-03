@@ -252,14 +252,14 @@ def get_mailing_confirm_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def get_grade_mgmt_students_keyboard(student_names: List[str], class_name: str) -> InlineKeyboardMarkup:
-    """Список учеников для управления оценками."""
+def get_grade_mgmt_students_keyboard(student_names: List[str]) -> InlineKeyboardMarkup:
+    """Список учеников для управления оценками. Использует индексы вместо имён в callback."""
     builder = InlineKeyboardBuilder()
-    for name in student_names:
+    for i, name in enumerate(student_names):
         builder.row(
             InlineKeyboardButton(
                 text=name,
-                callback_data=f"grade_mgmt_student:{name}:{class_name}",
+                callback_data=f"grade_mgmt_si:{i}",
             )
         )
     builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="menu:grade_mgmt"))
@@ -286,7 +286,7 @@ def get_grade_list_keyboard(grades: List[dict], student_name: str, class_name: s
     return builder.as_markup()
 
 
-def get_grade_actions_keyboard(grade_id: int, student_name: str, class_name: str) -> InlineKeyboardMarkup:
+def get_grade_actions_keyboard(grade_id: int) -> InlineKeyboardMarkup:
     """Кнопки действий с конкретной оценкой."""
     builder = InlineKeyboardBuilder()
     builder.row(
@@ -294,10 +294,7 @@ def get_grade_actions_keyboard(grade_id: int, student_name: str, class_name: str
         InlineKeyboardButton(text="🗑 Удалить", callback_data=f"grade_mgmt_del_ask:{grade_id}"),
     )
     builder.row(
-        InlineKeyboardButton(
-            text="◀️ Назад",
-            callback_data=f"grade_mgmt_student:{student_name}:{class_name}",
-        )
+        InlineKeyboardButton(text="◀️ Назад", callback_data="grade_mgmt_student_back")
     )
     return builder.as_markup()
 
