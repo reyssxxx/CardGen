@@ -13,223 +13,412 @@
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #f0f4ff;
-            color: #1e293b;
+            background: #191919;
+            color: #e2e2e2;
             min-height: 100vh;
+            font-size: 16px;
+            line-height: 1.7;
         }
 
-        header {
-            background: #1e40af;
-            color: white;
-            padding: 24px 20px 20px;
-            text-align: center;
+        .page {
+            max-width: 760px;
+            margin: 0 auto;
+            padding: 80px 48px 120px;
         }
 
-        header .lyceum {
-            font-size: 13px;
-            letter-spacing: 1.5px;
-            text-transform: uppercase;
-            opacity: 0.75;
+        /* ── Заголовок страницы ── */
+
+        .page-title {
+            font-size: 42px;
+            font-weight: 700;
+            color: #ffffff;
+            letter-spacing: -0.5px;
+            margin-bottom: 20px;
+        }
+
+        .page-lead {
+            color: #9b9b9b;
+            font-size: 16px;
+            line-height: 1.65;
+            margin-bottom: 56px;
+            max-width: 580px;
+        }
+
+        .page-lead p {
+            margin-bottom: 6px;
+        }
+
+        /* ── Разделы ── */
+
+        .section {
+            margin-bottom: 56px;
+        }
+
+        h2 {
+            font-size: 26px;
+            font-weight: 600;
+            color: #ffffff;
+            margin-bottom: 12px;
+            margin-top: 0;
+            letter-spacing: -0.2px;
+        }
+
+        h3 {
+            font-size: 18px;
+            font-weight: 600;
+            color: #d4d4d4;
+            margin-top: 28px;
             margin-bottom: 8px;
         }
 
-        header h1 {
-            font-size: 26px;
-            font-weight: 700;
-            letter-spacing: -0.3px;
+        p {
+            color: #c4c4c4;
+            margin-bottom: 12px;
         }
 
-        header p {
-            margin-top: 8px;
-            font-size: 14px;
-            opacity: 0.8;
+        ul, ol {
+            padding-left: 22px;
+            color: #c4c4c4;
+            margin-bottom: 12px;
         }
 
-        .container {
-            max-width: 720px;
-            margin: 0 auto;
-            padding: 24px 16px 48px;
-        }
-
-        .section {
-            background: white;
-            border-radius: 16px;
-            padding: 20px 20px;
-            margin-bottom: 16px;
-            border: 1px solid #e2e8f0;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.05);
-        }
-
-        .section-header {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin-bottom: 14px;
-        }
-
-        .section-icon {
-            width: 40px;
-            height: 40px;
-            background: #eff6ff;
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 20px;
-            flex-shrink: 0;
-        }
-
-        .section-title {
-            font-size: 17px;
-            font-weight: 600;
-            color: #1e40af;
-        }
-
-        .section-body {
-            font-size: 14px;
-            line-height: 1.65;
-            color: #475569;
-        }
-
-        .section-body ul {
-            padding-left: 18px;
-        }
-
-        .section-body li {
+        li {
             margin-bottom: 5px;
         }
 
-        .placeholder-badge {
+        a {
+            color: #7eb8f7;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        strong {
+            color: #e2e2e2;
+            font-weight: 600;
+        }
+
+        /* ── Разделитель ── */
+
+        hr {
+            border: none;
+            border-top: 1px solid #2e2e2e;
+            margin: 48px 0;
+        }
+
+        /* ── Выноска (callout) ── */
+
+        .callout {
+            background: #222831;
+            border-left: 3px solid #7eb8f7;
+            border-radius: 4px;
+            padding: 14px 18px;
+            margin: 16px 0;
+            font-size: 15px;
+            color: #b0c4d8;
+        }
+
+        .callout.warn {
+            border-left-color: #f7c948;
+            background: #221f10;
+            color: #c9a837;
+        }
+
+        .callout.tip {
+            border-left-color: #5cb85c;
+            background: #162016;
+            color: #8fce8f;
+        }
+
+        /* ── Таблица ── */
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0;
+            font-size: 15px;
+        }
+
+        th {
+            background: #252525;
+            color: #8a8a8a;
+            font-weight: 600;
+            text-align: left;
+            padding: 10px 14px;
+            border-bottom: 1px solid #333;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        td {
+            padding: 10px 14px;
+            border-bottom: 1px solid #242424;
+            color: #c4c4c4;
+            vertical-align: top;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* ── Бейдж «скоро» ── */
+
+        .badge {
             display: inline-block;
-            background: #fef9c3;
-            color: #854d0e;
+            background: #2e2a1a;
+            color: #c9a837;
             font-size: 11px;
             font-weight: 600;
             padding: 2px 8px;
             border-radius: 20px;
             letter-spacing: 0.3px;
-            margin-left: 6px;
+            margin-left: 8px;
             vertical-align: middle;
         }
 
-        .coming-soon {
-            background: #f8fafc;
-            border: 1.5px dashed #cbd5e1;
-            border-radius: 12px;
-            padding: 18px;
-            text-align: center;
-            color: #94a3b8;
-            font-size: 13px;
-            margin-top: 8px;
+        .placeholder {
+            color: #555;
+            font-style: italic;
+            font-size: 14px;
         }
 
-        .coming-soon span {
-            font-size: 28px;
-            display: block;
-            margin-bottom: 6px;
-        }
+        @media (max-width: 600px) {
+            .page {
+                padding: 40px 24px 80px;
+            }
 
-        footer {
-            text-align: center;
-            padding: 20px;
-            font-size: 12px;
-            color: #94a3b8;
+            .page-title {
+                font-size: 30px;
+            }
         }
     </style>
 </head>
 <body>
 
-<header>
-    <div class="lyceum">Лицей ЮФУ</div>
-    <h1>📖 Хендбук лицеиста</h1>
-    <p>Всё, что нужно знать новичку и не только</p>
-</header>
+<div class="page">
 
-<div class="container">
+    <h1 class="page-title">📖 Хендбук лицеиста</h1>
 
+    <div class="page-lead">
+        <p>Здесь собрано всё, что полезно знать новичку и не только:</p>
+        <p>— как устроен лицей и чего ждать от учёбы;</p>
+        <p>— правила, контакты и важные документы;</p>
+        <p>— мероприятия, олимпиады и жизнь лицея.</p>
+        <p style="margin-top: 10px;">Хендбук пополняется — следи за обновлениями в боте.</p>
+    </div>
+
+    <!-- ── О лицее ── -->
     <div class="section">
-        <div class="section-header">
-            <div class="section-icon">🏫</div>
-            <div class="section-title">О лицее <span class="placeholder-badge">скоро</span></div>
-        </div>
-        <div class="section-body">
-            <div class="coming-soon">
-                <span>✍️</span>
-                Раздел в разработке — здесь будет история лицея, миссия и ценности
-            </div>
+        <h2>🏫 О лицее</h2>
+
+        <p>
+            Лицей Южного федерального университета открылся в <strong>2016 году</strong> как
+            площадка для непрерывного образования в связке «лицей → вуз».
+            Пятый год подряд (2021–2025) входит в
+            <strong>топ-20 лучших школ Ростовской области</strong> по числу выпускников,
+            поступивших в ведущие вузы России.
+        </p>
+
+        <p>
+            Адрес: <strong>г. Ростов-на-Дону, ул. 23-я линия, 43</strong>.
+        </p>
+
+        <h3>Профили обучения</h3>
+        <ul>
+            <li><strong>Технологический</strong> — углублённые математика, физика, информатика, курс по программированию.</li>
+            <li><strong>Социально-экономический</strong> — история, география, обществознание.</li>
+            <li><strong>Гуманитарный</strong> — русский и английский языки, литература; авторские курсы «Комикс и литература» и «Современная русская литература».</li>
+        </ul>
+
+        <h3>Ссылки</h3>
+        <ul>
+            <li>Официальный сайт: <a href="https://lyceum-sfedu.ru/" target="_blank">lyceum-sfedu.ru</a></li>
+            <li>ВКонтакте: <span class="placeholder">будет добавлено</span></li>
+            <li>Telegram-канал: <span class="placeholder">будет добавлено</span></li>
+        </ul>
+    </div>
+
+    <hr>
+
+    <!-- ── Распорядок дня ── -->
+    <div class="section">
+        <h2>⏰ Распорядок дня <span class="badge">скоро</span></h2>
+
+        <p>Расписание звонков, перемен и обеда появится здесь.</p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Урок</th>
+                    <th>Начало</th>
+                    <th>Конец</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td>1-й урок</td><td>—</td><td>—</td></tr>
+                <tr><td>2-й урок</td><td>—</td><td>—</td></tr>
+                <tr><td>3-й урок</td><td>—</td><td>—</td></tr>
+                <tr><td>4-й урок</td><td>—</td><td>—</td></tr>
+                <tr><td>5-й урок</td><td>—</td><td>—</td></tr>
+                <tr><td>6-й урок</td><td>—</td><td>—</td></tr>
+            </tbody>
+        </table>
+
+        <div class="callout">
+            💡 Заполним расписание как только согласуем данные с администрацией.
         </div>
     </div>
 
+    <hr>
+
+    <!-- ── Правила ── -->
     <div class="section">
-        <div class="section-header">
-            <div class="section-icon">📅</div>
-            <div class="section-title">Распорядок дня <span class="placeholder-badge">скоро</span></div>
-        </div>
-        <div class="section-body">
-            <div class="coming-soon">
-                <span>⏰</span>
-                Расписание звонков, перемен, обеда и дополнительных занятий
-            </div>
-        </div>
+        <h2>📋 Правила и устав <span class="badge">скоро</span></h2>
+
+        <p>Здесь будут правила поведения, дресс-код и политика использования телефонов.</p>
+
+        <h3>Дресс-код</h3>
+        <p class="placeholder">Требования к внешнему виду будут добавлены.</p>
+
+        <h3>Телефоны на уроках</h3>
+        <p class="placeholder">Правила будут добавлены.</p>
+
+        <h3>Документы</h3>
+        <ul>
+            <li><a href="https://lyceum-sfedu.ru/" target="_blank">Устав лицея</a></li>
+            <li><a href="https://lyceum-sfedu.ru/" target="_blank">Правила приёма</a></li>
+        </ul>
     </div>
 
+    <hr>
+
+    <!-- ── Учёба и оценки ── -->
     <div class="section">
-        <div class="section-header">
-            <div class="section-icon">📋</div>
-            <div class="section-title">Правила и устав <span class="placeholder-badge">скоро</span></div>
+        <h2>🎓 Учёба и оценки</h2>
+
+        <h3>Система оценивания</h3>
+        <p>
+            В лицее используется <strong>5-балльная система</strong>:
+            5 (отлично), 4 (хорошо), 3 (удовлетворительно), 2 (неудовлетворительно).
+            Также фиксируется «н» — отсутствие на уроке.
+        </p>
+
+        <h3>Табель в боте</h3>
+        <p>
+            Твои оценки доступны прямо в боте — раздел <strong>«🎴 Мой табель»</strong>.
+            Табель обновляется раз в две недели автоматически после выгрузки учителем.
+        </p>
+
+        <div class="callout tip">
+            ✅ Видишь ошибку в оценке? Напиши через раздел «❓ Вопросы» в боте или обратись к классному руководителю.
         </div>
-        <div class="section-body">
-            <div class="coming-soon">
-                <span>📜</span>
-                Правила поведения, дресс-код, использование телефонов
-            </div>
-        </div>
+
+        <h3>Олимпиады</h3>
+        <p>
+            Лицей активно поддерживает участие во Всероссийской олимпиаде школьников (ВсОШ).
+            Расписание этапов и актуальная информация — на сайте лицея в разделе
+            <a href="https://lyceum-sfedu.ru/" target="_blank">«ВсОШ»</a>.
+        </p>
+
+        <h3>Подготовка к ОГЭ и ЕГЭ</h3>
+        <p>
+            Лицей проводит подготовительные курсы к ОГЭ/ЕГЭ с октября по май.
+            Подробности — у классного руководителя или на сайте лицея.
+        </p>
     </div>
 
+    <hr>
+
+    <!-- ── Мероприятия ── -->
     <div class="section">
-        <div class="section-header">
-            <div class="section-icon">🎓</div>
-            <div class="section-title">Учёба и оценки <span class="placeholder-badge">скоро</span></div>
-        </div>
-        <div class="section-body">
-            <div class="coming-soon">
-                <span>📊</span>
-                Система оценивания, пересдачи, олимпиады
-            </div>
-        </div>
+        <h2>🎉 Мероприятия и жизнь лицея</h2>
+
+        <p>
+            В лицее регулярно проходят школьные мероприятия, творческие и интеллектуальные конкурсы.
+            Все ближайшие события доступны в боте — раздел <strong>«📅 Мероприятия»</strong>.
+        </p>
+
+        <h3>Дни открытых дверей 2025/26</h3>
+        <ul>
+            <li>27 сентября</li>
+            <li>22 ноября</li>
+            <li>17 января</li>
+            <li>21 марта</li>
+            <li>16 мая</li>
+        </ul>
+
+        <h3>Запись на мероприятия</h3>
+        <p>
+            Записаться можно прямо в боте: <strong>«📅 Мероприятия»</strong> →
+            выбери событие → нажми «Записаться».
+            Там же можно отменить запись.
+        </p>
     </div>
 
+    <hr>
+
+    <!-- ── Психологическая поддержка ── -->
     <div class="section">
-        <div class="section-header">
-            <div class="section-icon">🤝</div>
-            <div class="section-title">Полезные контакты <span class="placeholder-badge">скоро</span></div>
+        <h2>💬 Психологическая поддержка</h2>
+
+        <p>
+            В лицее работает психолог. Если тебе нужна помощь или просто хочется поговорить —
+            открой анонимный чат в боте: раздел <strong>«💬 Психолог»</strong>.
+        </p>
+
+        <div class="callout">
+            🔒 Чат анонимный по умолчанию. Ты сам решаешь, раскрывать ли своё имя.
         </div>
-        <div class="section-body">
-            <div class="coming-soon">
-                <span>📞</span>
-                Педагоги, администрация, психолог, медпункт
-            </div>
-        </div>
+
+        <h3>Как начать чат</h3>
+        <ol>
+            <li>Открой бот → главное меню.</li>
+            <li>Нажми <strong>«💬 Психолог»</strong>.</li>
+            <li>Нажми <strong>«Открыть анонимный чат»</strong>.</li>
+            <li>Пиши — психолог ответит в рабочее время.</li>
+        </ol>
     </div>
 
+    <hr>
+
+    <!-- ── Полезные контакты ── -->
     <div class="section">
-        <div class="section-header">
-            <div class="section-icon">🎉</div>
-            <div class="section-title">Жизнь лицея <span class="placeholder-badge">скоро</span></div>
-        </div>
-        <div class="section-body">
-            <div class="coming-soon">
-                <span>🏆</span>
-                Мероприятия, клубы, традиции и события
-            </div>
-        </div>
+        <h2>📞 Полезные контакты <span class="badge">скоро</span></h2>
+
+        <p>Здесь появятся контакты классных руководителей, администрации, психолога и медпункта.</p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Кто</th>
+                    <th>Контакт</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Приёмная лицея</td>
+                    <td><a href="https://lyceum-sfedu.ru/" target="_blank">lyceum-sfedu.ru → Контакты</a></td>
+                </tr>
+                <tr>
+                    <td>Классный руководитель</td>
+                    <td><span class="placeholder">будет добавлено</span></td>
+                </tr>
+                <tr>
+                    <td>Психолог</td>
+                    <td>Через бот — раздел «💬 Психолог»</td>
+                </tr>
+                <tr>
+                    <td>Медпункт</td>
+                    <td><span class="placeholder">будет добавлено</span></td>
+                </tr>
+            </tbody>
+        </table>
     </div>
 
 </div>
-
-<footer>
-    Лицей ЮФУ &mdash; Хендбук лицеиста
-</footer>
 
 </body>
 </html>
