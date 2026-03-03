@@ -22,13 +22,21 @@ class AdminGradeUpload(StatesGroup):
 
 
 class AdminCreateEvent(StatesGroup):
-    """Состояния для создания мероприятия"""
+    """Состояния для создания дня мероприятий"""
     entering_title = State()
     entering_date = State()
-    selecting_limit = State()
-    entering_custom_limit = State()
     entering_description = State()
-    confirming = State()
+    managing = State()
+
+
+class AdminAddSection(StatesGroup):
+    """Состояния для добавления секции к мероприятию"""
+    entering_title = State()
+    entering_host = State()
+    entering_time = State()
+    selecting_capacity = State()
+    entering_custom_capacity = State()
+    entering_description = State()
 
 
 class AdminSendAnnouncement(StatesGroup):
@@ -57,8 +65,8 @@ class AdminGradeManagement(StatesGroup):
     entering_new_grade = State()
 
 
-class StudentAnonQuestion(StatesGroup):
-    """Состояния для отправки анонимного вопроса"""
+class StudentQuestion(StatesGroup):
+    """Состояния для отправки вопроса администратору"""
     entering_question = State()
     confirming = State()
 
