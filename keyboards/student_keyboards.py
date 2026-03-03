@@ -19,6 +19,7 @@ def get_student_main_menu() -> InlineKeyboardMarkup:
     )
     builder.row(
         InlineKeyboardButton(text="📌 Мои записи", callback_data="menu:my_events"),
+        InlineKeyboardButton(text="💬 Психолог", callback_data="menu:support"),
     )
     return builder.as_markup()
 
