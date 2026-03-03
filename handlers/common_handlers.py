@@ -1,10 +1,12 @@
 """
 Общие handlers для всех пользователей (регистрация, /start, /cancel)
 """
+import os
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
 from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
+from dotenv import load_dotenv
 
 from database.user_repository import UserRepository
 from handlers.states import RegistrationStates
@@ -21,13 +23,18 @@ from keyboards.teacher_keyboards import get_teacher_main_menu
 from utils.config_loader import (
     get_all_classes, get_students_by_class,
     is_teacher, get_teacher_name,
+    is_psychologist, get_psychologist_name,
 )
+from keyboards.psychologist_keyboards import get_psychologist_main_menu
+
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 
 router = Router()
 
 
 def _is_env_admin(user_id: int) -> bool:
-    return UserRepository().is_admin(user_id)
+    load_dotenv(override=True)
+    return user_id in {int(x) for x in os.getenv("ADMIN_ID", "").split(",") if x.strip()}
 
 
 async def _show_menu(target, user, is_new_message=False):
@@ -78,6 +85,15 @@ async def cmd_start(message: Message, state: FSMContext):
         await _show_menu(message, user, is_new_message=True)
         return
 
+    # Вход для психолога (не сохраняем в БД — отдельная роль)
+    if is_psychologist(user_id):
+        name = get_psychologist_name(user_id) or message.from_user.full_name or "Психолог"
+        await message.answer(
+            f"Добро пожаловать, {name.split()[0]}! Выбери действие:",
+            reply_markup=get_psychologist_main_menu(),
+        )
+        return
+
     # Обычный пользователь — проверяем регистрацию
     user = user_repo.get_user(user_id)
     if user:
@@ -104,8 +120,8 @@ async def cmd_cancel(message: Message, state: FSMContext):
 
 @router.callback_query(F.data == "menu:back_student")
 async def back_to_student_menu(callback: CallbackQuery, state: FSMContext):
-    await state.clear()
     await callback.answer()
+    await state.clear()
     user_repo = UserRepository()
     user = user_repo.get_user(callback.from_user.id)
     if user:
@@ -114,8 +130,8 @@ async def back_to_student_menu(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "menu:back_teacher")
 async def back_to_teacher_menu(callback: CallbackQuery, state: FSMContext):
-    await state.clear()
     await callback.answer()
+    await state.clear()
     user_repo = UserRepository()
     user = user_repo.get_user(callback.from_user.id)
     if user:
@@ -127,7 +143,10 @@ async def start_student_registration(callback: CallbackQuery, state: FSMContext)
     await callback.answer()
     classes = get_all_classes()
     if not classes:
-        await callback.message.edit_text("Список классов пуст. Обратись к администратору.")
+        await callback.message.edit_text(
+            "Список классов пуст. Обратись к администратору.",
+            reply_markup=get_cancel_keyboard("reg_cancel"),
+        )
         return
     await state.set_state(RegistrationStates.selecting_class)
     await callback.message.edit_text(
@@ -186,13 +205,18 @@ async def confirm_registration(callback: CallbackQuery, state: FSMContext):
             reply_markup=get_student_main_menu(),
         )
     else:
-        class_name = data["selected_class"]
-        names = get_students_by_class(class_name)
-        await state.set_state(RegistrationStates.selecting_name)
+        # Не чистим FSM — пользователь может вернуться к выбору имени через reg_back_name
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+        from aiogram.types import InlineKeyboardButton
+        kb = InlineKeyboardBuilder()
+        kb.row(
+            InlineKeyboardButton(text="◀️ Выбрать другое имя", callback_data="reg_back_name"),
+            InlineKeyboardButton(text="❌ Отмена", callback_data="reg_cancel"),
+        )
         await callback.message.edit_text(
-            "Это имя уже занято другим пользователем.\nВыбери другое или обратись к администратору.\n\n"
-            f"Класс {class_name} — выбери имя:",
-            reply_markup=get_name_selection_keyboard(names),
+            "⚠️ Это имя уже занято другим пользователем.\n"
+            "Выбери другое имя или обратись к администратору.",
+            reply_markup=kb.as_markup(),
         )
 
 
@@ -223,15 +247,12 @@ async def back_to_class(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "register_teacher_request")
 async def teacher_not_in_list(callback: CallbackQuery):
     await callback.answer()
-    from aiogram.utils.keyboard import InlineKeyboardBuilder
-    kb = InlineKeyboardBuilder()
-    kb.button(text="◀️ Назад", callback_data="reg_back_start")
     await callback.message.edit_text(
         "👩‍🏫 Доступ учителей настраивается администратором.\n\n"
         "Попроси администратора добавить твой Telegram ID в список учителей.\n"
         "Твой ID: <code>{}</code>".format(callback.from_user.id),
         parse_mode="HTML",
-        reply_markup=kb.as_markup(),
+        reply_markup=get_cancel_keyboard("reg_cancel"),
     )
 
 
@@ -239,17 +260,7 @@ async def teacher_not_in_list(callback: CallbackQuery):
 async def cancel_registration(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.clear()
-    from aiogram.utils.keyboard import InlineKeyboardBuilder
-    kb = InlineKeyboardBuilder()
-    kb.button(text="🔄 Начать заново", callback_data="reg_back_start")
-    await callback.message.edit_text("Регистрация отменена.", reply_markup=kb.as_markup())
-
-
-@router.callback_query(F.data == "reg_back_start")
-async def back_to_start_registration(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()
-    await state.clear()
     await callback.message.edit_text(
-        "Добро пожаловать в бот Лицея ЮФУ!\n\nВыбери свою роль:",
+        "Привет! Добро пожаловать в бот Лицея ЮФУ.\n\nВыбери свою роль:",
         reply_markup=get_registration_keyboard(),
     )

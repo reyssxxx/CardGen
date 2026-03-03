@@ -2,13 +2,20 @@
 Сервис генерации табелей успеваемости.
 HTML → PNG через Playwright.
 """
-import asyncio
-import sqlite3
+import hashlib
 import json
 import os
-from datetime import datetime, timedelta
+import sqlite3
 from collections import defaultdict
+from datetime import datetime, timedelta
+
 from playwright.async_api import async_playwright
+
+
+def _grades_hash(grades_data: list) -> str:
+    """MD5 от отсортированных данных оценок — используется для кэша."""
+    raw = str(sorted(grades_data)).encode()
+    return hashlib.md5(raw).hexdigest()
 
 
 def generate_html(full_name: str, class_name: str, subjects: list,
@@ -208,28 +215,6 @@ def generate_html(full_name: str, class_name: str, subjects: list,
     return html
 
 
-def _fetch_grades_data(db_path: str, config_path: str, student_name: str):
-    """Синхронное чтение оценок и предметов (для asyncio.to_thread)."""
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT subject, date, grade
-        FROM Grades
-        WHERE student_name = ?
-        ORDER BY date
-    """, (student_name,))
-    grades_data = cursor.fetchall()
-    conn.close()
-
-    if not grades_data:
-        raise Exception(f"Оценки для ученика {student_name} не найдены")
-
-    with open(config_path, 'r', encoding='utf-8') as f:
-        config = json.load(f)
-    subjects = config['subjects']
-    return grades_data, subjects
-
-
 async def generate_grade_card(
     student_name: str,
     class_name: str,
@@ -259,9 +244,32 @@ async def generate_grade_card(
 
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
-    grades_data, subjects = await asyncio.to_thread(
-        _fetch_grades_data, db_path, config_path, student_name
-    )
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT subject, date, grade
+        FROM Grades
+        WHERE student_name = ?
+        ORDER BY date
+    """, (student_name,))
+    grades_data = cursor.fetchall()
+    conn.close()
+
+    if not grades_data:
+        raise Exception(f"Оценки для ученика {student_name} не найдены")
+
+    # Проверяем кэш: если PNG существует и хэш оценок не изменился — пропускаем рендеринг
+    hash_file = output_file + ".hash"
+    current_hash = _grades_hash(grades_data)
+    if os.path.exists(output_file) and os.path.exists(hash_file):
+        with open(hash_file, encoding='utf-8') as f:
+            if f.read().strip() == current_hash:
+                return output_file
+
+    with open(config_path, 'r', encoding='utf-8') as f:
+        config = json.load(f)
+    subjects = config['subjects']
 
     now = datetime.now()
     start_year = now.year if now.month >= 9 else now.year - 1
@@ -301,5 +309,9 @@ async def generate_grade_card(
         await page.set_content(html)
         await page.screenshot(path=output_file, full_page=True)
         await browser.close()
+
+    # Сохраняем хэш чтобы следующий запрос с теми же оценками не запускал Playwright
+    with open(hash_file, 'w', encoding='utf-8') as f:
+        f.write(current_hash)
 
     return output_file

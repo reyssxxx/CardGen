@@ -159,6 +159,39 @@ class DatabaseManager:
                 except sqlite3.OperationalError:
                     pass
 
+            # Анонимные чаты психологической поддержки
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS SupportChats (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    student_user_id INTEGER NOT NULL,
+                    is_anonymous INTEGER DEFAULT 1,
+                    status TEXT DEFAULT 'active',
+                    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+                    closed_at TEXT
+                )
+            ''')
+
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_support_chats_student
+                ON SupportChats(student_user_id, status)
+            ''')
+
+            # Сообщения в чатах поддержки
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS SupportMessages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id INTEGER NOT NULL REFERENCES SupportChats(id),
+                    sender_type TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    created_at TEXT DEFAULT (datetime('now', 'localtime'))
+                )
+            ''')
+
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_support_messages_chat
+                ON SupportMessages(chat_id, created_at)
+            ''')
+
             conn.commit()
             logger.info("Database initialized successfully")
 

@@ -222,6 +222,27 @@ class GradeRepository:
         finally:
             conn.close()
 
+    def get_per_student_averages(self, class_name: str) -> list:
+        """
+        Средний балл каждого ученика класса по числовым оценкам.
+        Возвращает: [{student_name, avg}], отсортированный по имени.
+        """
+        conn = self.db_manager.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute('''
+                SELECT student_name,
+                       ROUND(AVG(CAST(grade AS REAL)), 2) AS avg
+                FROM Grades
+                WHERE class = ? AND grade IN ('2', '3', '4', '5')
+                GROUP BY student_name
+                ORDER BY student_name
+            ''', (class_name,))
+            return [{'student_name': row['student_name'], 'avg': row['avg']}
+                    for row in cursor.fetchall()]
+        finally:
+            conn.close()
+
     def update_grade(self, grade_id: int, new_grade: str) -> bool:
         """
         Изменить оценку

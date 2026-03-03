@@ -16,6 +16,9 @@ def get_teacher_main_menu() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="👥 Мои классы", callback_data="teacher:my_classes"),
         InlineKeyboardButton(text="📋 История рассылок", callback_data="teacher:history"),
     )
+    builder.row(
+        InlineKeyboardButton(text="📊 Успеваемость", callback_data="teacher:grades"),
+    )
     return builder.as_markup()
 
 
@@ -24,6 +27,16 @@ def get_teacher_class_keyboard(classes: List[str], callback_prefix: str) -> Inli
     builder = InlineKeyboardBuilder()
     for cls in classes:
         builder.button(text=cls, callback_data=f"{callback_prefix}:{cls}")
+    builder.adjust(3)
+    builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="menu:back_teacher"))
+    return builder.as_markup()
+
+
+def get_teacher_grades_class_keyboard(classes: List[str]) -> InlineKeyboardMarkup:
+    """Выбор класса для просмотра успеваемости."""
+    builder = InlineKeyboardBuilder()
+    for cls in classes:
+        builder.button(text=cls, callback_data=f"teacher_grades_class:{cls}")
     builder.adjust(3)
     builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="menu:back_teacher"))
     return builder.as_markup()
