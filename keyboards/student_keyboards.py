@@ -1,9 +1,12 @@
 """
 Клавиатуры для ученика.
 """
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from typing import List, Optional
+
+
+HANDBOOK_URL = "https://reyssxxx.github.io/CardGen/handbook/"
 
 
 def get_student_main_menu() -> InlineKeyboardMarkup:
@@ -20,6 +23,9 @@ def get_student_main_menu() -> InlineKeyboardMarkup:
     builder.row(
         InlineKeyboardButton(text="📌 Мои записи", callback_data="menu:my_events"),
         InlineKeyboardButton(text="💬 Психолог", callback_data="menu:support"),
+    )
+    builder.row(
+        InlineKeyboardButton(text="📖 Хендбук лицеиста", url=HANDBOOK_URL),
     )
     return builder.as_markup()
 
@@ -174,6 +180,21 @@ def get_support_open_keyboard(has_active_chat: bool) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="◀️ Назад", callback_data="menu:back_student"),
     )
     return builder.as_markup()
+
+
+def get_student_chat_reply_keyboard(is_anonymous: bool) -> ReplyKeyboardMarkup:
+    """ReplyKeyboard для режима чата с психологом — всегда видна у студента."""
+    buttons = []
+    if is_anonymous:
+        buttons.append(KeyboardButton(text="👤 Открыть личность"))
+    buttons.append(KeyboardButton(text="🚪 Завершить чат"))
+    buttons.append(KeyboardButton(text="◀️ В главное меню"))
+    return ReplyKeyboardMarkup(
+        keyboard=[buttons],
+        resize_keyboard=True,
+        one_time_keyboard=False,
+        input_field_placeholder="Напишите сообщение психологу...",
+    )
 
 
 def get_support_chat_keyboard(is_anonymous: bool) -> InlineKeyboardMarkup:

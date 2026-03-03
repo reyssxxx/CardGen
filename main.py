@@ -43,7 +43,7 @@ async def main():
 
     try:
         logger.info("Bot started. Waiting for updates...")
-        await dp.start_polling(bot)
+        await dp.start_polling(bot, dp=dp)
     except KeyboardInterrupt:
         logger.info("Bot stopped by KeyboardInterrupt")
     except Exception as e:

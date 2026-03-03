@@ -1,7 +1,7 @@
 """
 Клавиатуры для психолога.
 """
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from typing import List
 
@@ -38,6 +38,20 @@ def get_psychologist_chats_keyboard(chats: List[dict], back_callback: str) -> In
         )
     builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data=back_callback))
     return builder.as_markup()
+
+
+def get_psychologist_chat_reply_keyboard(chat_id: int, is_closed: bool) -> ReplyKeyboardMarkup:
+    """ReplyKeyboard для режима чата — всегда видна у психолога."""
+    buttons = []
+    if not is_closed:
+        buttons.append(KeyboardButton(text="🚪 Завершить чат"))
+    buttons.append(KeyboardButton(text="◀️ К списку чатов"))
+    return ReplyKeyboardMarkup(
+        keyboard=[buttons],
+        resize_keyboard=True,
+        one_time_keyboard=False,
+        input_field_placeholder="Напишите ответ ученику...",
+    )
 
 
 def get_psychologist_in_chat_keyboard(chat_id: int, is_closed: bool) -> InlineKeyboardMarkup:

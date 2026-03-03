@@ -1,16 +1,17 @@
 """
 Handlers для анонимного чата с психологом — сторона ученика.
 """
-from aiogram import Router, F, Bot
-from aiogram.types import Message, CallbackQuery
+from aiogram import Router, F, Bot, Dispatcher
+from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.storage.base import StorageKey
 
 from database.support_repository import SupportRepository
 from database.user_repository import UserRepository
 from handlers.states import StudentSupport
 from keyboards.student_keyboards import (
     get_student_main_menu,
-    get_support_chat_keyboard,
+    get_student_chat_reply_keyboard,
     get_support_confirm_keyboard,
     get_support_open_keyboard,
     get_support_history_keyboard,
@@ -47,18 +48,26 @@ def _chat_header(chat: dict) -> str:
     return f"💬 <b>Чат #{chat['id']}</b> ({status}, {anon})\n\n"
 
 
-async def _notify_psychologist(bot: Bot, chat_id: int, text: str) -> None:
-    """Уведомить психолога о новом сообщении."""
+async def _notify_psychologist(bot: Bot, dp: Dispatcher, chat_id: int, text: str) -> None:
+    """Переслать сообщение психологу. Если психолог уже в этом чате — без кнопки."""
     psych_id = get_psychologist_user_id()
     if not psych_id:
         return
+    # Проверяем, находится ли психолог в FSM in_chat для этого чата
+    key = StorageKey(bot_id=bot.id, chat_id=psych_id, user_id=psych_id)
+    state_data = await dp.storage.get_data(key)
+    psych_in_this_chat = state_data.get("psych_chat_id") == chat_id
+
     try:
-        await bot.send_message(
-            psych_id,
-            f"💬 Новое сообщение в <b>чате #{chat_id}</b>:\n\n<i>{text[:300]}</i>",
-            parse_mode="HTML",
-            reply_markup=get_psychologist_notify_keyboard(chat_id),
-        )
+        if psych_in_this_chat:
+            await bot.send_message(psych_id, text, parse_mode="HTML")
+        else:
+            await bot.send_message(
+                psych_id,
+                text,
+                parse_mode="HTML",
+                reply_markup=get_psychologist_notify_keyboard(chat_id),
+            )
     except Exception:
         pass
 
@@ -94,7 +103,7 @@ async def menu_support(callback: CallbackQuery, state: FSMContext):
 # ── Создать новый чат ─────────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "support:create")
-async def support_create(callback: CallbackQuery, state: FSMContext):
+async def support_create(callback: CallbackQuery, state: FSMContext, bot: Bot, dp: Dispatcher):
     await callback.answer()
     chat_id = support_repo.create_chat(callback.from_user.id)
     await state.set_state(StudentSupport.in_chat)
@@ -103,7 +112,7 @@ async def support_create(callback: CallbackQuery, state: FSMContext):
     psych_id = get_psychologist_user_id()
     if psych_id:
         try:
-            await callback.bot.send_message(
+            await bot.send_message(
                 psych_id,
                 f"🆕 Открыт новый анонимный чат <b>#{chat_id}</b>.",
                 parse_mode="HTML",
@@ -114,10 +123,12 @@ async def support_create(callback: CallbackQuery, state: FSMContext):
 
     await callback.message.edit_text(
         f"💬 <b>Чат #{chat_id} открыт</b>\n\n"
-        "Ты анонимен. Пиши свои мысли — психолог ответит.\n\n"
-        "<i>Используй кнопки ниже для управления чатом.</i>",
+        "Ты анонимен. Пиши свои мысли — психолог ответит.",
         parse_mode="HTML",
-        reply_markup=get_support_chat_keyboard(is_anonymous=True),
+    )
+    await callback.message.answer(
+        "Используй кнопки ниже для управления чатом.",
+        reply_markup=get_student_chat_reply_keyboard(is_anonymous=True),
     )
 
 
@@ -138,19 +149,55 @@ async def support_open(callback: CallbackQuery, state: FSMContext):
     msgs = support_repo.get_messages(chat["id"])
     history = _format_history(msgs, chat)
     await callback.message.edit_text(
-        _chat_header(chat) + history + "\n\n<i>Напиши сообщение:</i>",
+        _chat_header(chat) + history,
         parse_mode="HTML",
-        reply_markup=get_support_chat_keyboard(is_anonymous=bool(chat["is_anonymous"])),
+    )
+    await callback.message.answer(
+        "Продолжай общение — пиши сообщение:",
+        reply_markup=get_student_chat_reply_keyboard(is_anonymous=bool(chat["is_anonymous"])),
     )
 
 
 # ── Получение сообщения от ученика ────────────────────────────────────────────
 
-@router.message(StudentSupport.in_chat)
-async def support_student_message(message: Message, state: FSMContext, bot: Bot):
-    if not message.text:
-        await message.answer("Пожалуйста, отправь текстовое сообщение.")
-        return
+@router.message(StudentSupport.in_chat, F.text == "🚪 Завершить чат")
+async def support_close_via_keyboard(message: Message, state: FSMContext):
+    """Нажатие кнопки «Завершить чат» в ReplyKeyboard."""
+    await state.set_state(StudentSupport.confirm_close)
+    await message.answer(
+        "🚪 <b>Завершить чат?</b>\n\n"
+        "Переписка сохранится в истории, но продолжить её будет нельзя.",
+        parse_mode="HTML",
+        reply_markup=get_support_confirm_keyboard("close"),
+    )
+
+
+@router.message(StudentSupport.in_chat, F.text == "◀️ В главное меню")
+async def support_menu_via_keyboard(message: Message, state: FSMContext):
+    """Нажатие кнопки «В главное меню» в ReplyKeyboard."""
+    await state.clear()
+    await message.answer(
+        "Главное меню:",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    await message.answer("Выбери действие:", reply_markup=get_student_main_menu())
+
+
+@router.message(StudentSupport.in_chat, F.text == "👤 Открыть личность")
+async def support_reveal_via_keyboard(message: Message, state: FSMContext):
+    """Нажатие кнопки «Открыть личность» в ReplyKeyboard."""
+    await state.set_state(StudentSupport.confirm_reveal)
+    await message.answer(
+        "👤 <b>Раскрыть личность?</b>\n\n"
+        "Психолог увидит твоё имя и класс. "
+        "Это действие <b>нельзя отменить</b>.",
+        parse_mode="HTML",
+        reply_markup=get_support_confirm_keyboard("reveal"),
+    )
+
+
+@router.message(StudentSupport.in_chat, F.text)
+async def support_student_message(message: Message, state: FSMContext, bot: Bot, dp: Dispatcher):
     data = await state.get_data()
     chat_id = data.get("support_chat_id")
     if not chat_id:
@@ -160,15 +207,26 @@ async def support_student_message(message: Message, state: FSMContext, bot: Bot)
     chat = support_repo.get_chat(chat_id)
     if not chat or chat["status"] != "active":
         await state.clear()
-        await message.answer("Чат уже завершён.", reply_markup=get_student_main_menu())
+        await message.answer("Чат уже завершён.", reply_markup=ReplyKeyboardRemove())
+        await message.answer("Выбери действие:", reply_markup=get_student_main_menu())
         return
 
     support_repo.add_message(chat_id, "student", message.text)
-    await _notify_psychologist(bot, chat_id, message.text)
-    await message.answer(
-        "✅ Сообщение отправлено психологу.",
-        reply_markup=get_support_chat_keyboard(is_anonymous=bool(chat["is_anonymous"])),
-    )
+
+    # Формируем префикс для психолога
+    if chat["is_anonymous"]:
+        prefix = f"Аноним #{chat_id}"
+    else:
+        u = user_repo.get_user(message.from_user.id)
+        prefix = f"{u['ФИ']}, {u['class']}" if u else f"Чат #{chat_id}"
+
+    await _notify_psychologist(bot, dp, chat_id, f"[{prefix}]:\n{message.text}")
+    # НЕ отвечаем студенту — сообщение просто отправлено
+
+
+@router.message(StudentSupport.in_chat)
+async def support_student_non_text(message: Message, state: FSMContext):
+    await message.answer("Пожалуйста, отправь текстовое сообщение.")
 
 
 # ── Раскрыть личность ─────────────────────────────────────────────────────────
@@ -212,7 +270,10 @@ async def support_reveal_confirm(callback: CallbackQuery, state: FSMContext, bot
     await callback.message.edit_text(
         f"✅ Личность раскрыта. Психолог теперь видит: <b>{identity}</b>",
         parse_mode="HTML",
-        reply_markup=get_support_chat_keyboard(is_anonymous=False),
+    )
+    await callback.message.answer(
+        "Продолжай общение:",
+        reply_markup=get_student_chat_reply_keyboard(is_anonymous=False),
     )
 
 
@@ -252,6 +313,13 @@ async def support_close_confirm(callback: CallbackQuery, state: FSMContext, bot:
 
     await callback.message.edit_text(
         "Чат завершён. Если захочешь — можешь открыть новый.",
+    )
+    await callback.message.answer(
+        "Выбери действие:",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    await callback.message.answer(
+        "Анонимная поддержка:",
         reply_markup=get_support_open_keyboard(has_active_chat=False),
     )
 
@@ -265,9 +333,10 @@ async def support_cancel_action(callback: CallbackQuery, state: FSMContext):
     chat_id = data.get("support_chat_id")
     chat = support_repo.get_chat(chat_id) if chat_id else None
     await state.set_state(StudentSupport.in_chat)
-    await callback.message.edit_text(
-        "Действие отменено. Продолжай общаться:",
-        reply_markup=get_support_chat_keyboard(
+    await callback.message.edit_text("Действие отменено. Продолжай общаться:")
+    await callback.message.answer(
+        "Пиши сообщение:",
+        reply_markup=get_student_chat_reply_keyboard(
             is_anonymous=bool(chat["is_anonymous"]) if chat else True
         ),
     )

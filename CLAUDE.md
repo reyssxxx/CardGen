@@ -40,19 +40,26 @@ ADMIN_ID=123456789,987654321
 { "11Т": ["Иванов Иван", "Петрова Мария"] }
 ```
 
-**`data/config.json`** — list of subjects (the `teachers` array inside is **legacy and ignored**):
+**`data/config.json`** — list of subjects used for grade cards and Excel templates:
 ```json
 { "subjects": ["Математика", "Физика", ...] }
+```
+> The `teachers` array that may appear in this file is **legacy and unused** — teacher data is now in `teachers.json`.
+
+**`data/psychologists.json`** — maps Telegram user ID (string) to psychologist data:
+```json
+{ "123456789": { "name": "Сидорова Елена Ивановна" } }
 ```
 
 ## Authentication & Role Detection
 
 On `/start`, the bot checks in order:
 
-1. **Admin**: Is `user_id` in `ADMIN_ID` env var? → Auto-register, show admin menu
-2. **Teacher**: Is `user_id` a key in `data/teachers.json`? → Auto-register, show teacher menu
-3. **Registered student**: Is user in DB? → Show student menu
-4. **New user**: Show registration keyboard (student only)
+1. **Admin**: Is `user_id` in `ADMIN_ID` env var? → Auto-register in DB, show admin menu
+2. **Teacher**: Is `user_id` a key in `data/teachers.json`? → Auto-register in DB, show teacher menu
+3. **Psychologist**: Is `user_id` a key in `data/psychologists.json`? → Show psychologist menu (NOT stored in DB)
+4. **Registered student**: Is user in DB? → Show student menu
+5. **New user**: Show registration keyboard (student only)
 
 Student registration: select class → select name from `students.json` → confirm → inserted into DB.
 
@@ -62,7 +69,9 @@ Routers are included in this order — the order matters for handler filtering:
 1. `common_handlers` — `/start`, `/cancel`, registration FSM
 2. `admin_handlers` — grade uploads, grade cards, events, announcements, Q&A
 3. `teacher_handlers` — announcement to class
-4. `student_handlers` — view grades, events, questions to admin
+4. `psychologist_handlers` — support chat management (psychologist side)
+5. `student_support_handlers` — anonymous support chat (student side)
+6. `student_handlers` — view grades, events, questions to admin
 
 ## Database
 
@@ -74,8 +83,10 @@ Grades(id PK, student_name, class, subject, grade, date, uploaded_by, created_at
 Events(id, title, description, date, time_slots JSON, class_limit, created_by, is_active, published)
 EventSections(id, event_id FK, title, host, time, description, capacity, sort_order)
 EventRegistrations(id, event_id FK, user_id, time_slot, student_name, class, section_id FK, registered_at)
-Announcements(id, text, target, created_by, created_at)
-AnonQuestions(id, text, created_at, answered, answer)
+Announcements(id, text, target, created_by, created_at, photo_file_id)
+AnonQuestions(id, text, created_at, answered, answer, asker_user_id, photo_file_id, answer_photo_file_id)
+SupportChats(id, student_user_id, is_anonymous, status, created_at, closed_at)
+SupportMessages(id, chat_id FK, sender_type, text, created_at)
 ```
 
 `grade` values: `'2'`, `'3'`, `'4'`, `'5'`, `'н'` (absent), `'б'` (sick).
@@ -91,7 +102,11 @@ State: `AdminGradeUpload`
 2. `excel_import_service.py` parses & validates (student names, dates, grade values)
 3. Preview parsed grades → Confirm → Bulk insert via `GradeRepository.add_grades_bulk()`
 
-**Excel format**: Row 1 = header (`Ученик | Предмет | DD.MM.YYYY | ...`), subsequent rows = data. Multiple grades per cell are space-separated.
+**Excel format** (`excel_import_service.py`):
+- Row 1: `"Период:" | DD.MM.YYYY (start) | DD.MM.YYYY (end)` — period header
+- Row 2: `"Предмет" | Student1 | Student2 | ...` — column headers
+- Rows 3+: `Subject | grades | grades | ...` — multiple grades per cell, space-separated
+- All grades linked to the period start date.
 
 ### Admin: Send Grade Cards
 State: `AdminSendCards`
@@ -107,9 +122,15 @@ State: `TeacherSendAnnouncement`
 - Select class (from their `classes` in `teachers.json`) → Enter text or upload photo → Confirm → `mailing_service.send_text_to_users()`
 
 ### Admin: Events, Announcements, Q&A
-- Events: Create with title, date, time slots, class limit; students register via student menu
-- Announcements: Broadcast to all students or a specific class
-- Q&A: Students submit questions; admin sees author and answers; answer is sent to the student
+- **Events**: Create with title, date, optional description; then add sections (секции) with title, host, time, capacity. Students browse and register via student menu.
+- **Announcements**: Broadcast text or photo to all students or a specific class (with `photo_file_id` support).
+- **Q&A**: Students submit anonymous questions (with optional photo); admin sees author (`asker_user_id`) and answers; answer is forwarded to the student.
+- **Grade management** (`AdminGradeManagement`): Admin can view/delete grades per student.
+
+### Psychologist / Support Chat
+- Students open anonymous support chats (`SupportChats`), exchange messages (`SupportMessages`) with the psychologist.
+- Student can optionally reveal identity during the chat.
+- Psychologist sees active chats and responds; bot relays messages bidirectionally.
 
 ## Grade Card Generation (`services/grade_card_service.py`)
 
@@ -129,8 +150,11 @@ State: `TeacherSendAnnouncement`
 | `AdminSendAnnouncement` | Admin announcements |
 | `AdminAnswerQuestion` | Q&A answering |
 | `AdminSendCards` | Bulk grade card sending |
+| `AdminGradeManagement` | Viewing/deleting student grades |
 | `StudentQuestion` | Question submission |
 | `TeacherSendAnnouncement` | Teacher class announcements |
+| `StudentSupport` | Anonymous support chat (student side) |
+| `PsychologistChat` | Support chat (psychologist side) |
 
 ## Repository Pattern
 
