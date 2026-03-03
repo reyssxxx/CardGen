@@ -19,6 +19,7 @@ from keyboards.student_keyboards import (
     get_event_action_keyboard,
     get_cancel_registration_keyboard,
     get_question_confirm_keyboard,
+    get_my_events_keyboard,
 )
 from keyboards.common_keyboards import get_cancel_keyboard
 from services.grade_card_service import generate_grade_card
@@ -192,7 +193,7 @@ async def register_for_event(callback: CallbackQuery):
     if not event_repo.is_event_available(event_id, class_name, event.get("class_limit")):
         await callback.answer("Мест нет — лимит от вашего класса исчерпан.", show_alert=True)
         return
-    success = event_repo.register(event_id, callback.from_user.id, "", user["ФИ"], class_name)
+    success = event_repo.register(event_id, callback.from_user.id, user["ФИ"], class_name)
     if success:
         await callback.answer("Ты записан! ✅", show_alert=True)
     else:
@@ -235,6 +236,28 @@ async def back_to_events(callback: CallbackQuery):
         await callback.message.edit_text("Сейчас нет активных мероприятий.", reply_markup=get_student_main_menu())
         return
     await callback.message.edit_text("📅 Выбери мероприятие:", reply_markup=get_events_keyboard(events))
+
+
+# ── Мои записи ────────────────────────────────────────────────────────────────
+
+@router.callback_query(F.data == "menu:my_events")
+async def menu_my_events(callback: CallbackQuery):
+    await callback.answer()
+    user = _get_student(callback.from_user.id)
+    if not user:
+        return
+    events = event_repo.get_user_events(callback.from_user.id)
+    if not events:
+        await callback.message.edit_text(
+            "📌 Ты пока не записан ни на одно мероприятие.",
+            reply_markup=get_student_main_menu(),
+        )
+        return
+    await callback.message.edit_text(
+        "📌 <b>Твои записи на мероприятия:</b>",
+        parse_mode="HTML",
+        reply_markup=get_my_events_keyboard(events),
+    )
 
 
 # ── Анонимные вопросы ─────────────────────────────────────────────────────────

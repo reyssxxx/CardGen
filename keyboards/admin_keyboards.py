@@ -26,6 +26,9 @@ def get_admin_main_menu() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="📈 Статистика", callback_data="menu:stats"),
     )
     builder.row(
+        InlineKeyboardButton(text="🗑 Управление оценками", callback_data="menu:grade_mgmt"),
+    )
+    builder.row(
         InlineKeyboardButton(text="🚀 Разослать табели вручную", callback_data="menu:mailing_now"),
     )
     return builder.as_markup()
@@ -115,7 +118,7 @@ def get_event_confirm_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def get_admin_events_keyboard(events: List[dict]) -> InlineKeyboardMarkup:
+def get_admin_events_keyboard(events: List[dict], page: int = 0, has_prev: bool = False, has_next: bool = False) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for event in events:
         status = "🟢" if event.get("is_active") else "🔴"
@@ -125,7 +128,14 @@ def get_admin_events_keyboard(events: List[dict]) -> InlineKeyboardMarkup:
                 callback_data=f"admin_event_view:{event['id']}",
             )
         )
-    builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="admin_cancel"))
+    nav = []
+    if has_prev:
+        nav.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"admin_events_page:{page - 1}"))
+    if has_next:
+        nav.append(InlineKeyboardButton(text="Вперёд ➡️", callback_data=f"admin_events_page:{page + 1}"))
+    if nav:
+        builder.row(*nav)
+    builder.row(InlineKeyboardButton(text="◀️ Меню", callback_data="admin_cancel"))
     return builder.as_markup()
 
 
@@ -161,7 +171,7 @@ def get_announcement_confirm_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def get_questions_keyboard(questions: List[dict]) -> InlineKeyboardMarkup:
+def get_questions_keyboard(questions: List[dict], page: int = 0, has_prev: bool = False, has_next: bool = False) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for q in questions:
         prefix = "❓" if not q["answered"] else "✅"
@@ -172,7 +182,14 @@ def get_questions_keyboard(questions: List[dict]) -> InlineKeyboardMarkup:
                 callback_data=f"question_view:{q['id']}",
             )
         )
-    builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="admin_cancel"))
+    nav = []
+    if has_prev:
+        nav.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"questions_page:{page - 1}"))
+    if has_next:
+        nav.append(InlineKeyboardButton(text="Вперёд ➡️", callback_data=f"questions_page:{page + 1}"))
+    if nav:
+        builder.row(*nav)
+    builder.row(InlineKeyboardButton(text="◀️ Меню", callback_data="admin_cancel"))
     return builder.as_markup()
 
 
@@ -231,5 +248,62 @@ def get_mailing_confirm_keyboard() -> InlineKeyboardMarkup:
     builder.row(
         InlineKeyboardButton(text="✅ Разослать всем", callback_data="mailing_now_confirm"),
         InlineKeyboardButton(text="❌ Отмена", callback_data="admin_cancel"),
+    )
+    return builder.as_markup()
+
+
+def get_grade_mgmt_students_keyboard(student_names: List[str]) -> InlineKeyboardMarkup:
+    """Список учеников для управления оценками. Использует индексы вместо имён в callback."""
+    builder = InlineKeyboardBuilder()
+    for i, name in enumerate(student_names):
+        builder.row(
+            InlineKeyboardButton(
+                text=name,
+                callback_data=f"grade_mgmt_si:{i}",
+            )
+        )
+    builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="menu:grade_mgmt"))
+    return builder.as_markup()
+
+
+def get_grade_list_keyboard(grades: List[dict], student_name: str, class_name: str) -> InlineKeyboardMarkup:
+    """Список оценок ученика с кнопкой на каждую."""
+    builder = InlineKeyboardBuilder()
+    for g in grades:
+        label = f"{g['date']} | {g['subject']}: {g['grade']}"
+        builder.row(
+            InlineKeyboardButton(
+                text=label,
+                callback_data=f"grade_mgmt_view:{g['id']}",
+            )
+        )
+    builder.row(
+        InlineKeyboardButton(
+            text="◀️ Назад",
+            callback_data=f"grade_mgmt_class:{class_name}",
+        )
+    )
+    return builder.as_markup()
+
+
+def get_grade_actions_keyboard(grade_id: int) -> InlineKeyboardMarkup:
+    """Кнопки действий с конкретной оценкой."""
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="✏️ Изменить", callback_data=f"grade_mgmt_edit:{grade_id}"),
+        InlineKeyboardButton(text="🗑 Удалить", callback_data=f"grade_mgmt_del_ask:{grade_id}"),
+    )
+    builder.row(
+        InlineKeyboardButton(text="◀️ Назад", callback_data="grade_mgmt_student_back")
+    )
+    return builder.as_markup()
+
+
+def get_grade_delete_confirm_keyboard(grade_id: int, student_name: str, class_name: str) -> InlineKeyboardMarkup:
+    """Подтверждение удаления оценки."""
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="✅ Да, удалить", callback_data=f"grade_mgmt_del_confirm:{grade_id}"),
+        InlineKeyboardButton(text="◀️ Отмена", callback_data=f"grade_mgmt_view:{grade_id}"),
     )
     return builder.as_markup()

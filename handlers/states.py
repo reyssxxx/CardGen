@@ -49,10 +49,12 @@ class AdminSendCards(StatesGroup):
     confirming = State()
 
 
-class StudentEventRegistration(StatesGroup):
-    """Состояния для регистрации на мероприятие"""
-    selecting_event = State()
-    selecting_slot = State()
+class AdminGradeManagement(StatesGroup):
+    """Состояния для управления оценками (удаление, редактирование)"""
+    selecting_class = State()
+    selecting_student = State()
+    confirming_delete = State()
+    entering_new_grade = State()
 
 
 class StudentAnonQuestion(StatesGroup):
@@ -68,3 +70,13 @@ class TeacherSendAnnouncement(StatesGroup):
     confirming = State()
 
 
+class StudentSupport(StatesGroup):
+    """Состояния для анонимного чата с психологом (сторона ученика)"""
+    in_chat = State()
+    confirm_reveal = State()
+    confirm_close = State()
+
+
+class PsychologistChat(StatesGroup):
+    """Состояния для работы психолога с чатом поддержки"""
+    in_chat = State()

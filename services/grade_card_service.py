@@ -2,12 +2,20 @@
 Сервис генерации табелей успеваемости.
 HTML → PNG через Playwright.
 """
-import sqlite3
+import hashlib
 import json
 import os
-from datetime import datetime, timedelta
+import sqlite3
 from collections import defaultdict
+from datetime import datetime, timedelta
+
 from playwright.async_api import async_playwright
+
+
+def _grades_hash(grades_data: list) -> str:
+    """MD5 от отсортированных данных оценок — используется для кэша."""
+    raw = str(sorted(grades_data)).encode()
+    return hashlib.md5(raw).hexdigest()
 
 
 def generate_html(full_name: str, class_name: str, subjects: list,
@@ -251,6 +259,14 @@ async def generate_grade_card(
     if not grades_data:
         raise Exception(f"Оценки для ученика {student_name} не найдены")
 
+    # Проверяем кэш: если PNG существует и хэш оценок не изменился — пропускаем рендеринг
+    hash_file = output_file + ".hash"
+    current_hash = _grades_hash(grades_data)
+    if os.path.exists(output_file) and os.path.exists(hash_file):
+        with open(hash_file, encoding='utf-8') as f:
+            if f.read().strip() == current_hash:
+                return output_file
+
     with open(config_path, 'r', encoding='utf-8') as f:
         config = json.load(f)
     subjects = config['subjects']
@@ -293,5 +309,9 @@ async def generate_grade_card(
         await page.set_content(html)
         await page.screenshot(path=output_file, full_page=True)
         await browser.close()
+
+    # Сохраняем хэш чтобы следующий запрос с теми же оценками не запускал Playwright
+    with open(hash_file, 'w', encoding='utf-8') as f:
+        f.write(current_hash)
 
     return output_file
