@@ -93,6 +93,20 @@ class DatabaseManager:
                 )
             ''')
 
+            # Секции мероприятий
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS EventSections (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_id INTEGER NOT NULL REFERENCES Events(id),
+                    title TEXT NOT NULL,
+                    host TEXT,
+                    time TEXT,
+                    description TEXT,
+                    capacity INTEGER,
+                    sort_order INTEGER DEFAULT 0
+                )
+            ''')
+
             # Регистрации на мероприятия
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS EventRegistrations (
@@ -102,6 +116,7 @@ class DatabaseManager:
                     time_slot TEXT NOT NULL,
                     student_name TEXT NOT NULL,
                     class TEXT NOT NULL,
+                    section_id INTEGER REFERENCES EventSections(id),
                     registered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(event_id, user_id, time_slot)
                 )
@@ -118,7 +133,7 @@ class DatabaseManager:
                 )
             ''')
 
-            # Анонимные вопросы
+            # Вопросы учеников
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS AnonQuestions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -130,11 +145,19 @@ class DatabaseManager:
                 )
             ''')
 
-            # Миграция: добавить asker_user_id в существующие БД
-            try:
-                cursor.execute('ALTER TABLE AnonQuestions ADD COLUMN asker_user_id INTEGER')
-            except sqlite3.OperationalError:
-                pass
+            # Миграции для существующих БД
+            for migration in [
+                'ALTER TABLE AnonQuestions ADD COLUMN asker_user_id INTEGER',
+                'ALTER TABLE AnonQuestions ADD COLUMN photo_file_id TEXT',
+                'ALTER TABLE AnonQuestions ADD COLUMN answer_photo_file_id TEXT',
+                'ALTER TABLE Announcements ADD COLUMN photo_file_id TEXT',
+                'ALTER TABLE Events ADD COLUMN published BOOLEAN DEFAULT 1',
+                'ALTER TABLE EventRegistrations ADD COLUMN section_id INTEGER REFERENCES EventSections(id)',
+            ]:
+                try:
+                    cursor.execute(migration)
+                except sqlite3.OperationalError:
+                    pass
 
             conn.commit()
             logger.info("Database initialized successfully")

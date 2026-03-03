@@ -3,6 +3,7 @@
 """
 import asyncio
 import logging
+import os
 from typing import Optional
 from aiogram import Bot
 from aiogram.types import FSInputFile
@@ -67,6 +68,7 @@ class MailingService:
         sent = failed = 0
         total = len(students)
         for user_id, name, class_name in students:
+            card_path = None
             try:
                 card_path = await generate_grade_card(name, class_name)
                 ok = await self._send_one(user_id, f"Табель успеваемости\n{name}", card_path)
@@ -77,6 +79,12 @@ class MailingService:
             except Exception as e:
                 logger.warning("Failed to generate/send card for %s: %s", name, e)
                 failed += 1
+            finally:
+                if card_path and os.path.exists(card_path):
+                    try:
+                        os.remove(card_path)
+                    except OSError:
+                        pass
             if progress_callback:
                 await progress_callback(sent + failed, total)
             await asyncio.sleep(0.05)

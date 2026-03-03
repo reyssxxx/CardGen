@@ -21,17 +21,20 @@ def parse_grades_excel(file_path: str, class_name: str, valid_students: list) ->
     Парсит Excel-файл с оценками.
 
     Формат файла:
-      Строка 1 (заголовки): Ученик | Предмет | 01.09.2024 | 15.09.2024 | ...
-      Строки 2+:            Иванов Иван | Математика | 5 | 4 3 | ...
+      Строка 1: "Период:" | "ДД.ММ.ГГГГ" | "ДД.ММ.ГГГГ"  (начало и конец)
+      Строка 2 (заголовки): Предмет | Ученик1 | Ученик2 | ...
+      Строки 3+:            Математика | 5 4 | 3 | ...
 
     Несколько оценок в ячейке — разделяются пробелами.
-    Пустая ячейка = нет оценок за период.
+    Пустая ячейка = нет оценок.
+    Все оценки привязываются к дате начала периода.
 
     Returns:
         {
             'grades': [{'student_name', 'class', 'subject', 'grade', 'date'}, ...],
             'skipped': ['Имя которое не найдено', ...],
-            'dates': [datetime, ...],
+            'period_start': datetime,
+            'period_end': datetime,
             'count': int,
         }
     """
@@ -41,71 +44,83 @@ def parse_grades_excel(file_path: str, class_name: str, valid_students: list) ->
     ws = wb.active
 
     rows = list(ws.iter_rows(values_only=True))
-    if not rows:
-        raise ValueError("Файл пустой")
+    if len(rows) < 2:
+        raise ValueError("Файл пустой или слишком короткий")
 
-    header = rows[0]
-    if len(header) < 3:
-        raise ValueError("Неверный формат: нужно минимум 3 столбца (Ученик, Предмет, Дата...)")
-
-    # Парсим даты из заголовков (с 3-го столбца)
-    dates = []
-    for cell in header[2:]:
+    # ── Строка 1: период ────────────────────────────────────────────────────
+    period_row = rows[0]
+    period_start = period_end = None
+    for cell in period_row[1:]:
         if cell is None:
+            continue
+        parsed = _parse_date(str(cell).strip())
+        if parsed and period_start is None:
+            period_start = parsed
+        elif parsed and period_end is None:
+            period_end = parsed
             break
-        date = _parse_date(str(cell).strip())
-        if date:
-            dates.append(date)
 
-    if not dates:
-        raise ValueError("Не найдено ни одной даты в заголовке (формат: ДД.ММ.ГГГГ)")
+    if not period_start:
+        raise ValueError(
+            "Не найден период в строке 1. "
+            "Ожидается: ячейки B1 и C1 с датами ДД.ММ.ГГГГ"
+        )
+    if not period_end:
+        period_end = period_start
 
-    grades_list = []
+    grade_date_str = period_start.strftime('%d.%m.%Y')
+
+    # ── Строка 2: заголовки с именами учеников ──────────────────────────────
+    header = rows[1]
+    if len(header) < 2:
+        raise ValueError("Неверный формат строки 2: нужно минимум 2 столбца (Предмет, Ученик...)")
+
+    student_names_raw = [str(c).strip() for c in header[1:] if c is not None]
+    if not student_names_raw:
+        raise ValueError("Не найдено ни одного ученика в строке 2")
+
+    matched_students = []
     skipped = []
+    for i, raw in enumerate(student_names_raw):
+        matched = _match_name(raw, valid_lower)
+        if matched:
+            matched_students.append((i, matched))
+        else:
+            if raw not in skipped:
+                skipped.append(raw)
+                logger.debug("Name not matched in header: %r", raw)
 
-    for row in rows[1:]:
+    # ── Строки 3+: предметы и оценки ────────────────────────────────────────
+    grades_list = []
+    for row in rows[2:]:
         if not row or row[0] is None:
             continue
-
-        student_raw = str(row[0]).strip()
-        subject = str(row[1]).strip() if row[1] else None
-
-        if not student_raw or not subject:
+        subject = str(row[0]).strip()
+        if not subject:
             continue
 
-        # Fuzzy-match имя (точное или близкое совпадение)
-        matched_name = _match_name(student_raw, valid_lower)
-        if not matched_name:
-            if student_raw not in skipped:
-                skipped.append(student_raw)
-                logger.debug("Name not matched: %r", student_raw)
-            continue
-
-        # Парсим оценки по датам
-        for i, date in enumerate(dates):
-            col_idx = i + 2
-            cell_value = row[col_idx] if col_idx < len(row) else None
+        for col_i, student_name in matched_students:
+            cell_idx = col_i + 1
+            cell_value = row[cell_idx] if cell_idx < len(row) else None
             if cell_value is None or str(cell_value).strip() == '':
                 continue
 
-            cell_str = str(cell_value).strip()
-            grade_tokens = cell_str.split()
-
-            for token in grade_tokens:
+            for token in str(cell_value).strip().split():
                 token = token.lower().strip()
                 if token in VALID_GRADES:
                     grades_list.append({
-                        'student_name': matched_name,
+                        'student_name': student_name,
                         'class': class_name,
                         'subject': subject,
                         'grade': token,
-                        'date': date.strftime('%d.%m.%Y'),
+                        'date': grade_date_str,
                     })
 
     return {
         'grades': grades_list,
         'skipped': skipped,
-        'dates': dates,
+        'period_start': period_start,
+        'period_end': period_end,
         'count': len(grades_list),
     }
 
@@ -114,75 +129,104 @@ def generate_template_excel(class_name: str, students: list, subjects: list) -> 
     """
     Генерирует Excel-шаблон для заполнения оценок.
 
+    Строка 1: метка "Период:" + две ячейки с датами начала и конца (предзаполнены).
+    Строка 2: заголовки — Предмет | Ученик1 | Ученик2 | ...
+    Строки 3+: предметы, ячейки = оценки через пробел.
+
     Returns:
         bytes: содержимое .xlsx файла
     """
+    from datetime import timedelta
     wb = Workbook()
     ws = wb.active
     ws.title = class_name
 
     # Стили
     header_fill = PatternFill(start_color="1E40AF", end_color="1E40AF", fill_type="solid")
-    header_font = Font(color="FFFFFF", bold=True)
-    center = Alignment(horizontal="center", vertical="center")
+    header_font = Font(color="FFFFFF", bold=True, size=11)
+    period_fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
+    period_label_font = Font(color="FFFFFF", bold=True, size=10)
+    period_date_font = Font(color="FFFFFF", bold=True, size=11)
+    subj_fill = PatternFill(start_color="EFF6FF", end_color="EFF6FF", fill_type="solid")
+    subj_font = Font(color="1E40AF", bold=True, size=10)
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    left = Alignment(horizontal="left", vertical="center")
     thin = Side(style='thin', color='93C5FD')
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    thick_right = Side(style='medium', color='1E40AF')
+    subj_border = Border(left=thin, right=thick_right, top=thin, bottom=thin)
 
-    # Заголовочная строка
-    ws.cell(1, 1, "Ученик").font = header_font
-    ws.cell(1, 1).fill = header_fill
-    ws.cell(1, 1).alignment = center
-    ws.cell(1, 1).border = border
-    ws.column_dimensions['A'].width = 30
-
-    ws.cell(1, 2, "Предмет").font = header_font
-    ws.cell(1, 2).fill = header_fill
-    ws.cell(1, 2).alignment = center
-    ws.cell(1, 2).border = border
-    ws.column_dimensions['B'].width = 20
-
-    # Пример дат (2 в месяц с 1 сентября текущего учебного года)
+    # ── Строка 1: период ────────────────────────────────────────────────────
+    # Вычисляем текущий двухнедельный период
     now = datetime.now()
     year = now.year if now.month >= 9 else now.year - 1
-    from datetime import timedelta
-    period = datetime(year, 9, 1)
-    example_dates = []
-    while period <= now:
-        example_dates.append(period)
-        period += timedelta(weeks=2)
+    period_start = datetime(year, 9, 1)
+    while period_start + timedelta(weeks=2) <= now:
+        period_start += timedelta(weeks=2)
+    period_end = period_start + timedelta(weeks=2) - timedelta(days=1)
 
-    col_letters = []
-    for i, date in enumerate(example_dates):
-        col = i + 3
-        header_cell = ws.cell(1, col, date.strftime('%d.%m.%Y'))
-        header_cell.font = header_font
-        header_cell.fill = header_fill
-        header_cell.alignment = center
-        header_cell.border = border
-        col_letter = ws.cell(1, col).column_letter
-        ws.column_dimensions[col_letter].width = 12
-        col_letters.append(col_letter)
+    c = ws.cell(1, 1, "Период:")
+    c.font = period_label_font
+    c.fill = period_fill
+    c.alignment = left
+    c.border = border
 
-    # Данные: ученик × предмет
-    row_idx = 2
-    alt_fill = PatternFill(start_color="EFF6FF", end_color="EFF6FF", fill_type="solid")
-    for student in students:
-        for subject in subjects:
-            ws.cell(row_idx, 1, student).border = border
-            ws.cell(row_idx, 1).alignment = Alignment(vertical="center")
-            ws.cell(row_idx, 2, subject).border = border
-            ws.cell(row_idx, 2).alignment = Alignment(vertical="center")
-            if row_idx % 2 == 0:
-                ws.cell(row_idx, 1).fill = alt_fill
-                ws.cell(row_idx, 2).fill = alt_fill
-            for i in range(len(example_dates)):
-                cell = ws.cell(row_idx, i + 3)
-                cell.border = border
-                cell.alignment = center
-            row_idx += 1
+    c = ws.cell(1, 2, period_start.strftime('%d.%m.%Y'))
+    c.font = period_date_font
+    c.fill = period_fill
+    c.alignment = center
+    c.border = border
 
-    # Инструкция в конце
-    ws.cell(row_idx + 1, 1, "Допустимые оценки: 2 3 4 5 н б (можно несколько в ячейке через пробел)")
+    c = ws.cell(1, 3, period_end.strftime('%d.%m.%Y'))
+    c.font = period_date_font
+    c.fill = period_fill
+    c.alignment = center
+    c.border = border
+
+    ws.row_dimensions[1].height = 24
+
+    # ── Строка 2: заголовки ──────────────────────────────────────────────────
+    c = ws.cell(2, 1, "Предмет")
+    c.font = header_font
+    c.fill = header_fill
+    c.alignment = center
+    c.border = border
+    ws.column_dimensions['A'].width = 28
+
+    for i, student in enumerate(students):
+        col = i + 2
+        c = ws.cell(2, col, student)
+        c.font = header_font
+        c.fill = header_fill
+        c.alignment = center
+        c.border = border
+        col_letter = ws.cell(2, col).column_letter
+        ws.column_dimensions[col_letter].width = 16
+
+    ws.row_dimensions[2].height = 36
+
+    # ── Строки 3+: предметы ──────────────────────────────────────────────────
+    alt_fill = PatternFill(start_color="F8FAFC", end_color="F8FAFC", fill_type="solid")
+    for row_i, subject in enumerate(subjects):
+        row = row_i + 3
+        c = ws.cell(row, 1, subject)
+        c.font = subj_font
+        c.fill = subj_fill
+        c.alignment = left
+        c.border = subj_border
+        fill = alt_fill if row_i % 2 != 0 else None
+        for i in range(len(students)):
+            col = i + 2
+            c = ws.cell(row, col)
+            c.alignment = center
+            c.border = border
+            if fill:
+                c.fill = fill
+
+    # Инструкция под таблицей
+    note_row = len(subjects) + 4
+    c = ws.cell(note_row, 1, "Оценки: 2 3 4 5 н б  ·  несколько через пробел: 5 4 3")
+    c.font = Font(color="64748B", italic=True, size=9)
 
     buf = io.BytesIO()
     wb.save(buf)

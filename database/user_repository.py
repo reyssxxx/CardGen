@@ -7,9 +7,15 @@ from typing import Optional
 from database.db_manager import DatabaseManager
 from dotenv import load_dotenv
 
+_ADMIN_IDS_CACHE: set | None = None
+
+
 def _get_admin_ids() -> set:
-    load_dotenv(override=True)
-    return {int(x) for x in os.getenv("ADMIN_ID", "").split(",") if x.strip()}
+    global _ADMIN_IDS_CACHE
+    if _ADMIN_IDS_CACHE is None:
+        load_dotenv(override=True)
+        _ADMIN_IDS_CACHE = {int(x) for x in os.getenv("ADMIN_ID", "").split(",") if x.strip()}
+    return _ADMIN_IDS_CACHE
 
 
 class UserRepository:
@@ -148,7 +154,7 @@ class UserRepository:
         try:
             cursor = conn.cursor()
             cursor.execute(
-                'SELECT ID, ФИ, class FROM Users WHERE isAdmin = 0 ORDER BY class, ФИ'
+                'SELECT ID, ФИ, class FROM Users WHERE isAdmin = 0 AND isTeacher = 0 ORDER BY class, ФИ'
             )
             return [(row['ID'], row['ФИ'], row['class']) for row in cursor.fetchall()]
         finally:
@@ -160,7 +166,7 @@ class UserRepository:
         try:
             cursor = conn.cursor()
             cursor.execute(
-                'SELECT ID, ФИ FROM Users WHERE isAdmin = 0 AND class = ? ORDER BY ФИ',
+                'SELECT ID, ФИ FROM Users WHERE isAdmin = 0 AND isTeacher = 0 AND class = ? ORDER BY ФИ',
                 (class_name,)
             )
             return [(row['ID'], row['ФИ']) for row in cursor.fetchall()]

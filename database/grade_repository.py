@@ -15,7 +15,7 @@ class GradeRepository:
         self.db_manager = DatabaseManager(db_path)
 
     def add_grade(self, student_name: str, class_name: str, subject: str,
-                  grade: str, grade_date: str, teacher_username: str) -> int:
+                  grade: str, grade_date: str, uploaded_by: int) -> int:
         """
         Добавить оценку
         Возвращает: ID добавленной записи
@@ -25,9 +25,9 @@ class GradeRepository:
 
         try:
             cursor.execute('''
-                INSERT INTO Grades (student_name, class, subject, grade, date, teacher_username)
+                INSERT INTO Grades (student_name, class, subject, grade, date, uploaded_by)
                 VALUES (?, ?, ?, ?, ?, ?)
-            ''', (student_name, class_name, subject, grade, grade_date, teacher_username))
+            ''', (student_name, class_name, subject, grade, grade_date, uploaded_by))
 
             conn.commit()
             return cursor.lastrowid

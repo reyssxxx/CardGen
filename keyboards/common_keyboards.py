@@ -54,24 +54,3 @@ def get_cancel_keyboard(callback: str = "cancel") -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data=callback))
     return builder.as_markup()
-
-
-def get_confirm_cancel_keyboard(confirm_cb: str, cancel_cb: str = "cancel") -> InlineKeyboardMarkup:
-    """Клавиатура Подтвердить / Отмена."""
-    builder = InlineKeyboardBuilder()
-    builder.row(
-        InlineKeyboardButton(text="✅ Подтвердить", callback_data=confirm_cb),
-        InlineKeyboardButton(text="❌ Отмена", callback_data=cancel_cb),
-    )
-    return builder.as_markup()
-
-
-def get_content_type_keyboard(cancel_cb: str = "cancel") -> InlineKeyboardMarkup:
-    """Выбор типа контента для рассылки: текст или фото с подписью."""
-    builder = InlineKeyboardBuilder()
-    builder.row(
-        InlineKeyboardButton(text="✏️ Текст", callback_data="content_type:text"),
-        InlineKeyboardButton(text="🖼 Фото + подпись", callback_data="content_type:photo"),
-    )
-    builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data=cancel_cb))
-    return builder.as_markup()

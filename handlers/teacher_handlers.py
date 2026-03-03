@@ -165,7 +165,7 @@ async def announce_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot)
     user_id = callback.from_user.id
 
     teacher_name = get_teacher_name(user_id) or "Учитель"
-    announce_repo.create(text, user_id, class_name)
+    announce_repo.create(text, user_id, class_name, photo_file_id=photo_file_id)
 
     recipients = user_repo.get_students_by_class(class_name)
     send_text = f"📢 Объявление от {teacher_name}:\n\n{text}" if text else f"📢 Объявление от {teacher_name}:"

@@ -15,8 +15,8 @@ from database.event_repository import EventRepository
 from database.announcement_repository import AnnouncementRepository
 from database.anon_question_repository import AnonQuestionRepository
 from handlers.states import (
-    AdminGradeUpload, AdminCreateEvent, AdminSendAnnouncement,
-    AdminAnswerQuestion, AdminSendCards,
+    AdminGradeUpload, AdminCreateEvent, AdminAddSection,
+    AdminSendAnnouncement, AdminAnswerQuestion, AdminSendCards,
 )
 from keyboards.admin_keyboards import (
     get_admin_main_menu,
@@ -25,11 +25,13 @@ from keyboards.admin_keyboards import (
     get_grade_confirm_keyboard,
     get_send_cards_keyboard,
     get_send_cards_confirm_keyboard,
-    get_event_limit_keyboard,
     get_event_description_keyboard,
-    get_event_confirm_keyboard,
     get_admin_events_keyboard,
     get_event_manage_keyboard,
+    get_event_manage_day_keyboard,
+    get_section_skip_keyboard,
+    get_section_capacity_keyboard,
+    get_admin_section_detail_keyboard,
     get_announcement_audience_keyboard,
     get_announcement_confirm_keyboard,
     get_questions_keyboard,
@@ -37,7 +39,7 @@ from keyboards.admin_keyboards import (
     get_question_delete_confirm_keyboard,
     get_cancel_keyboard,
     get_stats_class_keyboard,
-    get_mailing_confirm_keyboard,
+    get_event_delete_confirm_keyboard,
 )
 from services.mailing_service import MailingService
 from services.excel_import_service import parse_grades_excel, generate_template_excel
@@ -100,9 +102,10 @@ async def menu_create_event(callback: CallbackQuery, state: FSMContext):
         await callback.answer("Нет доступа.", show_alert=True)
         return
     await callback.answer()
+    await state.update_data(admin_id=callback.from_user.id)
     await state.set_state(AdminCreateEvent.entering_title)
     await callback.message.edit_text(
-        "Создание мероприятия\n\nВведи название:",
+        "Создание дня мероприятий\n\nВведи название (например: «День словесности»):",
         reply_markup=get_cancel_keyboard(),
     )
 
@@ -144,7 +147,7 @@ async def menu_questions(callback: CallbackQuery):
     if not questions:
         await callback.message.edit_text("Вопросов пока нет.", reply_markup=get_admin_main_menu())
         return
-    await callback.message.edit_text("Анонимные вопросы:", reply_markup=get_questions_keyboard(questions))
+    await callback.message.edit_text("Вопросы от учеников:", reply_markup=get_questions_keyboard(questions))
 
 
 @router.callback_query(F.data == "menu:students")
@@ -227,16 +230,16 @@ async def process_excel_file(message: Message, state: FSMContext, bot: Bot):
         return
     await state.update_data(parsed_result=result, file_path=file_path)
     await state.set_state(AdminGradeUpload.confirming)
-    dates = result["dates"]
-    period_str = f"{dates[0].strftime('%d.%m')} — {dates[-1].strftime('%d.%m.%Y')}" if dates else "неизвестно"
     skipped_text = ""
     if result["skipped"]:
         skipped_names = ", ".join(result["skipped"][:5])
         more = f" и ещё {len(result['skipped']) - 5}" if len(result["skipped"]) > 5 else ""
         skipped_text = f"\n⚠️ Не найдены: {skipped_names}{more}"
+    p_start = result["period_start"].strftime('%d.%m')
+    p_end = result["period_end"].strftime('%d.%m.%Y')
     text = (
         f"✅ Файл обработан\n"
-        f"Класс: <b>{class_name}</b> | Период: {period_str}\n"
+        f"Класс: <b>{class_name}</b> | Период: {p_start} — {p_end}\n"
         f"Оценок: <b>{result['count']}</b>"
         f"{skipped_text}\n\nСохранить?"
     )
@@ -244,11 +247,17 @@ async def process_excel_file(message: Message, state: FSMContext, bot: Bot):
     await message.answer(text, parse_mode="HTML", reply_markup=get_grade_confirm_keyboard())
 
 
+@router.message(AdminGradeUpload.waiting_for_file)
+async def waiting_for_file_wrong_type(message: Message):
+    await message.answer("Отправь файл формата .xlsx, а не текст или фото.")
+
+
 @router.callback_query(AdminGradeUpload.confirming, F.data == "grade_confirm")
-async def confirm_grades(callback: CallbackQuery, state: FSMContext):
+async def confirm_grades(callback: CallbackQuery, state: FSMContext, bot: Bot):
     await callback.answer()
     data = await state.get_data()
     result = data["parsed_result"]
+    class_name = data["selected_class"]
     inserted = grade_repo.bulk_insert_grades(result["grades"])
     duplicates = result["count"] - inserted
     await state.clear()
@@ -257,6 +266,24 @@ async def confirm_grades(callback: CallbackQuery, state: FSMContext):
         f"✅ Оценки сохранены: {inserted} записей.{dup_text}",
         reply_markup=get_admin_main_menu(),
     )
+    # Уведомить затронутых учеников
+    if inserted > 0:
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        student_names = {g["student_name"] for g in result["grades"]}
+        students_in_class = user_repo.get_students_by_class(class_name)
+        notify_kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🎴 Мой табель", callback_data="menu:card")
+        ]])
+        for uid, name in students_in_class:
+            if name in student_names:
+                try:
+                    await bot.send_message(
+                        uid, "📊 Выставлены новые оценки! Проверь табель.",
+                        reply_markup=notify_kb,
+                    )
+                except Exception:
+                    pass
+                await asyncio.sleep(0.05)
 
 
 # ── Рассылка табелей ──────────────────────────────────────────────────────────
@@ -311,7 +338,7 @@ async def confirm_send_cards(callback: CallbackQuery, state: FSMContext, bot: Bo
     )
 
 
-# ── Мероприятия ───────────────────────────────────────────────────────────────
+# ── Мероприятия: создание дня ─────────────────────────────────────────────────
 
 @router.message(AdminCreateEvent.entering_title)
 async def event_enter_title(message: Message, state: FSMContext):
@@ -328,103 +355,298 @@ async def event_enter_date(message: Message, state: FSMContext):
     from utils.validators import validate_date
     date_str = message.text.strip()
     if not validate_date(date_str):
-        await message.answer("Неверный формат. Введи дату в формате ДД.ММ.ГГГГ (например: 15.03.2025)")
+        await message.answer("Неверный формат. Введи дату в формате ДД.ММ.ГГГГ (например: 15.03.2026)")
         return
     await state.update_data(event_date=date_str)
-    await state.set_state(AdminCreateEvent.selecting_limit)
-    await message.answer(
-        "Лимит участников от класса:",
-        reply_markup=get_event_limit_keyboard(),
-    )
-
-
-@router.callback_query(AdminCreateEvent.selecting_limit, F.data.startswith("event_limit:"))
-async def event_select_limit(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()
-    val = callback.data.split(":")[1]
-    if val == "custom":
-        await state.set_state(AdminCreateEvent.entering_custom_limit)
-        await callback.message.edit_text("Введи количество человек:", reply_markup=get_cancel_keyboard())
-        return
-    limit = None if val == "0" else int(val)
-    await state.update_data(event_limit=limit)
     await state.set_state(AdminCreateEvent.entering_description)
-    await callback.message.edit_text(
-        "Описание (необязательно):",
+    await message.answer(
+        "Описание дня (необязательно):",
         reply_markup=get_event_description_keyboard(),
     )
-
-
-@router.message(AdminCreateEvent.entering_custom_limit)
-async def event_custom_limit(message: Message, state: FSMContext):
-    try:
-        limit = int(message.text.strip())
-        if limit <= 0:
-            raise ValueError()
-    except ValueError:
-        await message.answer("Введи положительное число.")
-        return
-    await state.update_data(event_limit=limit)
-    await state.set_state(AdminCreateEvent.entering_description)
-    await message.answer("Описание (необязательно):", reply_markup=get_event_description_keyboard())
 
 
 @router.message(AdminCreateEvent.entering_description)
 async def event_enter_description(message: Message, state: FSMContext):
     await state.update_data(event_description=message.text.strip())
-    await show_event_preview(message, state)
+    await _create_event_day(message, state)
 
 
 @router.callback_query(AdminCreateEvent.entering_description, F.data == "event_skip_desc")
 async def event_skip_description(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.update_data(event_description=None)
-    await show_event_preview(callback.message, state, edit=True)
+    await _create_event_day(callback.message, state, edit=True)
 
 
-async def show_event_preview(message, state: FSMContext, edit=False):
+async def _create_event_day(message, state: FSMContext, edit=False):
+    """Создаёт день мероприятий в БД и показывает экран управления."""
     data = await state.get_data()
-    limit_text = f"Лимит: {data['event_limit']} чел/класс" if data.get("event_limit") else "Без лимита"
-    desc = data.get("event_description") or ""
-    text = (
-        f"<b>{data['event_title']}</b>\n"
-        f"Дата: {data['event_date']}\n"
-        f"{limit_text}"
-        + (f"\n\n{desc}" if desc else "")
-        + "\n\nСоздать мероприятие?"
-    )
-    await state.set_state(AdminCreateEvent.confirming)
-    if edit:
-        await message.edit_text(text, parse_mode="HTML", reply_markup=get_event_confirm_keyboard())
-    else:
-        await message.answer(text, parse_mode="HTML", reply_markup=get_event_confirm_keyboard())
-
-
-@router.callback_query(AdminCreateEvent.confirming, F.data == "event_confirm")
-async def confirm_create_event(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    await callback.answer()
-    data = await state.get_data()
-    event_repo.create_event(
+    event_id = event_repo.create_event(
         title=data["event_title"],
         date=data["event_date"],
-        time_slots=[""],
-        created_by=callback.from_user.id,
-        class_limit=data.get("event_limit"),
+        created_by=data.get("admin_id", 0),
         description=data.get("event_description"),
     )
+    await state.update_data(event_id=event_id)
+    await state.set_state(AdminCreateEvent.managing)
+    await _show_event_manage(message, event_id, edit=edit)
+
+
+async def _show_event_manage(message, event_id: int, edit=False):
+    """Показать экран управления днём мероприятий."""
+    event = event_repo.get_event(event_id)
+    sections = event_repo.get_sections(event_id)
+    desc = event.get("description") or ""
+    published = bool(event.get("published"))
+    pub_status = "🟢 Опубликовано" if published else "📝 Черновик"
+    text = f"<b>📅 {event['title']}</b> — {event['date']}\n{pub_status}"
+    if desc:
+        text += f"\n\n{desc}"
+    if sections:
+        text += "\n\n<b>Секции:</b>"
+        for i, s in enumerate(sections, 1):
+            time_str = f"{s['time']} " if s.get('time') else ""
+            host_str = f" — {s['host']}" if s.get('host') else ""
+            cap_str = f" (лимит {s['capacity']})" if s.get('capacity') else ""
+            text += f"\n{i}. {time_str}{s['title']}{host_str}{cap_str}"
+    else:
+        text += "\n\nСекций пока нет. Добавь первую секцию."
+    kb = get_event_manage_day_keyboard(event_id, sections, published)
+    if edit:
+        await message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+    else:
+        await message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
+# ── Мероприятия: добавление секций ───────────────────────────────────────────
+
+@router.callback_query(F.data.startswith("section_add:"))
+async def section_add_start(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    event_id = int(callback.data.split(":")[1])
+    await state.update_data(section_event_id=event_id)
+    await state.set_state(AdminAddSection.entering_title)
+    await callback.message.edit_text(
+        "Название секции:",
+        reply_markup=get_cancel_keyboard(),
+    )
+
+
+@router.message(AdminAddSection.entering_title)
+async def section_enter_title(message: Message, state: FSMContext):
+    await state.update_data(section_title=message.text.strip())
+    await state.set_state(AdminAddSection.entering_host)
+    await message.answer(
+        "Ведущий секции:",
+        reply_markup=get_section_skip_keyboard("sec_skip_host"),
+    )
+
+
+@router.callback_query(AdminAddSection.entering_host, F.data == "sec_skip_host")
+async def section_skip_host(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.update_data(section_host=None)
+    await state.set_state(AdminAddSection.entering_time)
+    await callback.message.edit_text(
+        "Время секции (ЧЧ:ММ):",
+        reply_markup=get_section_skip_keyboard("sec_skip_time"),
+    )
+
+
+@router.message(AdminAddSection.entering_host)
+async def section_enter_host(message: Message, state: FSMContext):
+    await state.update_data(section_host=message.text.strip())
+    await state.set_state(AdminAddSection.entering_time)
+    await message.answer(
+        "Время секции (ЧЧ:ММ):",
+        reply_markup=get_section_skip_keyboard("sec_skip_time"),
+    )
+
+
+@router.callback_query(AdminAddSection.entering_time, F.data == "sec_skip_time")
+async def section_skip_time(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.update_data(section_time=None)
+    await state.set_state(AdminAddSection.selecting_capacity)
+    await callback.message.edit_text(
+        "Лимит участников секции:",
+        reply_markup=get_section_capacity_keyboard(),
+    )
+
+
+@router.message(AdminAddSection.entering_time)
+async def section_enter_time(message: Message, state: FSMContext):
+    from utils.validators import validate_time
+    time_str = message.text.strip()
+    if not validate_time(time_str):
+        await message.answer("Неверный формат. Введи время в формате ЧЧ:ММ (например: 14:30)")
+        return
+    await state.update_data(section_time=time_str)
+    await state.set_state(AdminAddSection.selecting_capacity)
+    await message.answer(
+        "Лимит участников секции:",
+        reply_markup=get_section_capacity_keyboard(),
+    )
+
+
+@router.callback_query(AdminAddSection.selecting_capacity, F.data.startswith("sec_cap:"))
+async def section_select_capacity(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    val = callback.data.split(":")[1]
+    if val == "custom":
+        await state.set_state(AdminAddSection.entering_custom_capacity)
+        await callback.message.edit_text("Введи число:", reply_markup=get_cancel_keyboard())
+        return
+    cap = None if val == "0" else int(val)
+    await state.update_data(section_capacity=cap)
+    await state.set_state(AdminAddSection.entering_description)
+    await callback.message.edit_text(
+        "Описание секции (необязательно):",
+        reply_markup=get_section_skip_keyboard("sec_skip_desc"),
+    )
+
+
+@router.message(AdminAddSection.entering_custom_capacity)
+async def section_custom_capacity(message: Message, state: FSMContext):
+    try:
+        cap = int(message.text.strip())
+        if cap <= 0:
+            raise ValueError()
+    except ValueError:
+        await message.answer("Введи положительное число.")
+        return
+    await state.update_data(section_capacity=cap)
+    await state.set_state(AdminAddSection.entering_description)
+    await message.answer(
+        "Описание секции (необязательно):",
+        reply_markup=get_section_skip_keyboard("sec_skip_desc"),
+    )
+
+
+@router.callback_query(AdminAddSection.entering_description, F.data == "sec_skip_desc")
+async def section_skip_desc(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.update_data(section_description=None)
+    await _save_section(callback.message, state, edit=True)
+
+
+@router.message(AdminAddSection.entering_description)
+async def section_enter_desc(message: Message, state: FSMContext):
+    await state.update_data(section_description=message.text.strip())
+    await _save_section(message, state)
+
+
+async def _save_section(message, state: FSMContext, edit=False):
+    """Сохраняет секцию и возвращает к экрану управления днём."""
+    data = await state.get_data()
+    event_id = data["section_event_id"]
+    event_repo.add_section(
+        event_id=event_id,
+        title=data["section_title"],
+        host=data.get("section_host"),
+        time=data.get("section_time"),
+        description=data.get("section_description"),
+        capacity=data.get("section_capacity"),
+    )
+    # Очистить данные секции, оставить event_id
+    await state.set_state(AdminCreateEvent.managing)
+    await state.update_data(event_id=event_id)
+    await _show_event_manage(message, event_id, edit=edit)
+
+
+# ── Мероприятия: управление секцией (просмотр/удаление) ──────────────────────
+
+@router.callback_query(F.data.startswith("adm_section_view:"))
+async def admin_view_section(callback: CallbackQuery):
+    await callback.answer()
+    section_id = int(callback.data.split(":")[1])
+    section = event_repo.get_section(section_id)
+    if not section:
+        await callback.message.edit_text("Секция не найдена.", reply_markup=get_admin_main_menu())
+        return
+    regs = event_repo.get_section_registrations(section_id)
+    count = len(regs)
+    time_str = f"\n🕐 Время: {section['time']}" if section.get('time') else ""
+    host_str = f"\n👤 Ведущий: {section['host']}" if section.get('host') else ""
+    desc_str = f"\n\n{section['description']}" if section.get('description') else ""
+    cap_str = f"\n👥 Записалось: {count}" + (f" из {section['capacity']}" if section.get('capacity') else "")
+    text = f"<b>{section['title']}</b>{time_str}{host_str}{cap_str}{desc_str}"
+    if regs:
+        by_class = {}
+        for r in regs:
+            by_class.setdefault(r["class"], []).append(r["student_name"])
+        text += "\n\n<b>Участники:</b>"
+        for cls, names in sorted(by_class.items()):
+            text += f"\n{cls}: " + ", ".join(names)
+    await callback.message.edit_text(
+        text, parse_mode="HTML",
+        reply_markup=get_admin_section_detail_keyboard(section_id, section["event_id"]),
+    )
+
+
+@router.callback_query(F.data.startswith("section_delete:"))
+async def delete_section(callback: CallbackQuery):
+    await callback.answer()
+    section_id = int(callback.data.split(":")[1])
+    section = event_repo.get_section(section_id)
+    if not section:
+        await callback.message.edit_text("Секция не найдена.", reply_markup=get_admin_main_menu())
+        return
+    event_id = section["event_id"]
+    event_repo.delete_section(section_id)
+    await _show_event_manage(callback.message, event_id, edit=True)
+
+
+# ── Мероприятия: публикация и уведомление ─────────────────────────────────────
+
+@router.callback_query(F.data.startswith("event_publish:"))
+async def publish_event(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    await callback.answer()
+    event_id = int(callback.data.split(":")[1])
+    event = event_repo.get_event(event_id)
+    if not event:
+        return
+    sections = event_repo.get_sections(event_id)
+    event_repo.publish_event(event_id)
     await state.clear()
+
+    # Рассылка уведомлений
     students = user_repo.get_all_students()
-    announce_text = f"📅 Новое мероприятие: <b>{data['event_title']}</b> — {data['event_date']}\nЗарегистрируйся в боте!"
+    desc = event.get("description") or ""
+    announce_text = f"📅 <b>Новое мероприятие!</b>\n<b>{event['title']}</b> — {event['date']}"
+    if desc:
+        announce_text += f"\n\n{desc}"
+    if sections:
+        announce_text += "\n\n<b>Секции:</b>"
+        for s in sections:
+            time_str = f"{s['time']} " if s.get('time') else ""
+            announce_text += f"\n• {time_str}{s['title']}"
+
+    from aiogram.utils.keyboard import InlineKeyboardBuilder as IKB
+    notify_kb = IKB()
+    notify_kb.button(text="📋 Подробнее и записаться", callback_data=f"event_view:{event_id}")
+    notify_markup = notify_kb.as_markup()
     for uid, _, _ in students:
         try:
-            await bot.send_message(uid, announce_text, parse_mode="HTML")
+            await bot.send_message(uid, announce_text, parse_mode="HTML", reply_markup=notify_markup)
         except Exception:
             pass
         await asyncio.sleep(0.05)
     await callback.message.edit_text(
-        f"✅ Мероприятие «{data['event_title']}» создано! Уведомлено {len(students)} учеников.",
+        f"✅ «{event['title']}» опубликовано! Уведомлено {len(students)} учеников.",
         reply_markup=get_admin_main_menu(),
     )
+
+
+# ── Мероприятия: управление днём (из списка) и экран управления ───────────────
+
+@router.callback_query(F.data.startswith("event_manage:"))
+async def event_manage_from_list(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    event_id = int(callback.data.split(":")[1])
+    await state.update_data(event_id=event_id)
+    await state.set_state(AdminCreateEvent.managing)
+    await _show_event_manage(callback.message, event_id, edit=True)
 
 
 @router.callback_query(F.data.startswith("admin_event_view:"))
@@ -435,10 +657,23 @@ async def admin_view_event(callback: CallbackQuery):
     if not event:
         await callback.message.edit_text("Мероприятие не найдено.")
         return
+    sections = event_repo.get_sections(event_id)
+    has_sections = bool(sections)
     participants = event_repo.get_all_registrations(event_id)
     total = len(participants)
-    text = f"<b>{event['title']}</b> — {event['date']}\nЗаписалось: <b>{total}</b>\n\n"
-    if participants:
+    text = f"<b>{event['title']}</b> — {event['date']}\nЗаписалось: <b>{total}</b>"
+    pub = event.get("published", 1)
+    if not pub:
+        text += "\n📝 Черновик (не опубликовано)"
+    if sections:
+        text += "\n\n<b>Секции:</b>"
+        for s in sections:
+            count = event_repo.get_section_registration_count(s["id"])
+            time_str = f"{s['time']} " if s.get('time') else ""
+            cap_str = f" ({count}" + (f"/{s['capacity']}" if s.get('capacity') else "") + ")"
+            text += f"\n• {time_str}{s['title']}{cap_str}"
+    elif participants:
+        text += "\n\n"
         by_class = {}
         for p in participants:
             by_class.setdefault(p["class"], []).append(p["student_name"])
@@ -447,7 +682,7 @@ async def admin_view_event(callback: CallbackQuery):
             text += ", ".join(names) + "\n\n"
     await callback.message.edit_text(
         text, parse_mode="HTML",
-        reply_markup=get_event_manage_keyboard(event_id, bool(event.get("is_active"))),
+        reply_markup=get_event_manage_keyboard(event_id, bool(event.get("is_active")), has_sections),
     )
 
 
@@ -457,6 +692,28 @@ async def archive_event(callback: CallbackQuery):
     event_id = int(callback.data.split(":")[1])
     event_repo.deactivate_event(event_id)
     await callback.message.edit_text("Мероприятие архивировано.", reply_markup=get_admin_main_menu())
+
+
+@router.callback_query(F.data.startswith("event_delete_ask:"))
+async def ask_delete_event(callback: CallbackQuery):
+    await callback.answer()
+    event_id = int(callback.data.split(":")[1])
+    event = event_repo.get_event(event_id)
+    name = event["title"] if event else f"#{event_id}"
+    await callback.message.edit_text(
+        f"Удалить «{name}» навсегда?\n\nВсе секции и записи участников будут уничтожены. Это действие нельзя отменить.",
+        reply_markup=get_event_delete_confirm_keyboard(event_id),
+    )
+
+
+@router.callback_query(F.data.startswith("event_delete:"))
+async def confirm_delete_event(callback: CallbackQuery):
+    await callback.answer()
+    event_id = int(callback.data.split(":")[1])
+    event = event_repo.get_event(event_id)
+    name = event["title"] if event else f"#{event_id}"
+    event_repo.delete_event(event_id)
+    await callback.message.edit_text(f"Мероприятие «{name}» удалено.", reply_markup=get_admin_main_menu())
 
 
 @router.callback_query(F.data == "admin_events_back")
@@ -521,7 +778,7 @@ async def confirm_announcement(callback: CallbackQuery, state: FSMContext, bot: 
     text = data["announce_text"]
     target = data["announce_target"]
     photo_file_id = data.get("announce_photo")
-    announce_repo.create(text, callback.from_user.id, target)
+    announce_repo.create(text, callback.from_user.id, target, photo_file_id=photo_file_id)
     if target == "all":
         students = user_repo.get_all_students()
         recipients = [(uid, name) for uid, name, _ in students]
@@ -538,7 +795,7 @@ async def confirm_announcement(callback: CallbackQuery, state: FSMContext, bot: 
         await callback.message.edit_text(result_text, reply_markup=get_admin_main_menu())
 
 
-# ── Анонимные вопросы ─────────────────────────────────────────────────────────
+# ── Вопросы учеников ─────────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("question_view:"))
 async def admin_view_question(callback: CallbackQuery):
@@ -550,28 +807,79 @@ async def admin_view_question(callback: CallbackQuery):
         return
     from datetime import datetime
     dt = datetime.fromisoformat(q["created_at"]).strftime("%d.%m.%Y %H:%M")
-    text = f"<i>{q['text']}</i>\n\n{dt}"
+    author = q.get("author_name") or "Неизвестный"
+    author_class = q.get("author_class") or ""
+    author_info = f"{author}, {author_class}" if author_class else author
+    text = f"<b>От:</b> {author_info}\n<b>Дата:</b> {dt}\n\n<i>{q['text']}</i>"
     if q["answered"]:
-        text += f"\n\nОтвет: {q['answer']}"
-    await callback.message.edit_text(
-        text, parse_mode="HTML",
-        reply_markup=get_question_actions_keyboard(q_id, bool(q["answered"])),
-    )
+        text += f"\n\n<b>Ответ:</b>\n{q['answer']}"
+    kb = get_question_actions_keyboard(q_id, bool(q["answered"]))
+    question_photo = q.get("photo_file_id")
+    answer_photo = q.get("answer_photo_file_id")
+    # If there's a question photo, delete current message and send photo instead
+    if question_photo:
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.message.answer_photo(question_photo, caption=text, parse_mode="HTML", reply_markup=kb)
+        if answer_photo and q["answered"]:
+            await callback.message.answer_photo(answer_photo, caption="📷 Фото к ответу")
+    else:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+        if answer_photo and q["answered"]:
+            await callback.message.answer_photo(answer_photo, caption="📷 Фото к ответу")
 
 
 @router.callback_query(F.data.startswith("question_answer:"))
 async def start_answer_question(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     q_id = int(callback.data.split(":")[1])
+    q = anon_repo.get_by_id(q_id)
     await state.update_data(answering_question_id=q_id)
     await state.set_state(AdminAnswerQuestion.entering_answer)
-    await callback.message.edit_text(
-        "Введи ответ на вопрос:",
-        reply_markup=get_cancel_keyboard(),
+    question_text = f"\n\n<i>{q['text']}</i>" if q else ""
+    prompt = f"<b>Введи ответ на вопрос:</b>{question_text}\n\nМожно отправить текст или фото с подписью."
+    question_photo = q.get("photo_file_id") if q else None
+    if question_photo:
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.message.answer_photo(question_photo, caption=prompt, parse_mode="HTML", reply_markup=get_cancel_keyboard())
+    else:
+        await callback.message.edit_text(prompt, parse_mode="HTML", reply_markup=get_cancel_keyboard())
+
+
+@router.message(AdminAnswerQuestion.entering_answer, F.photo)
+async def answer_enter_photo(message: Message, state: FSMContext, bot: Bot):
+    data = await state.get_data()
+    q_id = data["answering_question_id"]
+    photo_id = message.photo[-1].file_id
+    answer = message.caption.strip() if message.caption else ""
+    q = anon_repo.get_by_id(q_id)
+    anon_repo.answer(q_id, answer, answer_photo_file_id=photo_id)
+    send_text = f"💬 Ответ на твой вопрос:\n\n<i>{q['text']}</i>"
+    if answer:
+        send_text += f"\n\n{answer}"
+    sent = 0
+    asker_id = q.get("asker_user_id")
+    if asker_id:
+        try:
+            await bot.send_photo(asker_id, photo_id, caption=send_text, parse_mode="HTML")
+            sent = 1
+        except Exception:
+            pass
+    await state.clear()
+    result = (
+        "✅ Ответ отправлен автору вопроса."
+        if sent
+        else "✅ Ответ сохранён (не удалось доставить — пользователь мог заблокировать бота)."
     )
+    await message.answer(result, reply_markup=get_admin_main_menu())
 
 
-@router.message(AdminAnswerQuestion.entering_answer)
+@router.message(AdminAnswerQuestion.entering_answer, F.text)
 async def answer_enter_text(message: Message, state: FSMContext, bot: Bot):
     data = await state.get_data()
     q_id = data["answering_question_id"]
@@ -594,6 +902,11 @@ async def answer_enter_text(message: Message, state: FSMContext, bot: Bot):
         else "✅ Ответ сохранён (не удалось доставить — пользователь мог заблокировать бота)."
     )
     await message.answer(result, reply_markup=get_admin_main_menu())
+
+
+@router.message(AdminAnswerQuestion.entering_answer)
+async def answer_wrong_type(message: Message):
+    await message.answer("Отправь текст или фото с подписью.")
 
 
 @router.callback_query(F.data.startswith("question_delete_ask:"))
@@ -622,7 +935,7 @@ async def back_to_questions(callback: CallbackQuery):
     if not questions:
         await callback.message.edit_text("Вопросов пока нет.", reply_markup=get_admin_main_menu())
         return
-    await callback.message.edit_text("Анонимные вопросы:", reply_markup=get_questions_keyboard(questions))
+    await callback.message.edit_text("Вопросы от учеников:", reply_markup=get_questions_keyboard(questions))
 
 
 # ── Экспорт участников мероприятия ────────────────────────────────────────────
@@ -635,16 +948,28 @@ async def export_event_participants(callback: CallbackQuery):
     if not event:
         await callback.message.edit_text("Мероприятие не найдено.")
         return
-    regs = event_repo.get_registrations_by_event(event_id)
-    total = event_repo.get_total_registrations(event_id)
 
+    sections = event_repo.get_sections(event_id)
+    total = event_repo.get_total_registrations(event_id)
     lines = [f"Мероприятие: {event['title']}", f"Дата: {event['date']}", f"Всего участников: {total}", ""]
-    for slot in event["time_slots"]:
-        participants = regs.get(slot, [])
-        lines.append(f"=== {slot} ({len(participants)} чел.) ===")
-        for p in participants:
-            lines.append(f"  {p['student_name']} ({p['class']})")
-        lines.append("")
+
+    if sections:
+        for s in sections:
+            regs = event_repo.get_section_registrations(s["id"])
+            time_str = f"{s['time']} " if s.get('time') else ""
+            host_str = f" ({s['host']})" if s.get('host') else ""
+            lines.append(f"=== {time_str}{s['title']}{host_str} ({len(regs)} чел.) ===")
+            for p in regs:
+                lines.append(f"  {p['student_name']} ({p['class']})")
+            lines.append("")
+    else:
+        regs = event_repo.get_registrations_by_event(event_id)
+        for slot in event["time_slots"]:
+            participants = regs.get(slot, [])
+            lines.append(f"=== {slot} ({len(participants)} чел.) ===")
+            for p in participants:
+                lines.append(f"  {p['student_name']} ({p['class']})")
+            lines.append("")
 
     text_content = "\n".join(lines)
     file = BufferedInputFile(
@@ -702,40 +1027,37 @@ async def stats_show_class(callback: CallbackQuery):
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=get_admin_main_menu())
 
 
-# ── Ручная рассылка табелей ───────────────────────────────────────────────────
+# ── Просмотр оценок по классу ────────────────────────────────────────────────
 
-@router.callback_query(F.data == "menu:mailing_now")
-async def menu_mailing_now(callback: CallbackQuery):
+@router.callback_query(F.data == "menu:view_grades")
+async def menu_view_grades(callback: CallbackQuery):
     if not _is_admin(callback.from_user.id):
         await callback.answer("Нет доступа.", show_alert=True)
         return
     await callback.answer()
-    count = len(user_repo.get_all_students())
+    classes = get_all_classes()
     await callback.message.edit_text(
-        f"Разослать табели всем <b>{count}</b> ученикам прямо сейчас?",
-        parse_mode="HTML",
-        reply_markup=get_mailing_confirm_keyboard(),
+        "Выбери класс для просмотра оценок:",
+        reply_markup=get_class_selection_keyboard(classes, "view_grades_class"),
     )
 
 
-@router.callback_query(F.data == "mailing_now_confirm")
-async def mailing_now_confirm(callback: CallbackQuery, bot: Bot):
+@router.callback_query(F.data.startswith("view_grades_class:"))
+async def view_grades_class(callback: CallbackQuery):
     await callback.answer()
-    students = user_repo.get_all_students()
-    progress_msg = await callback.message.edit_text(f"Начинаю рассылку... 0/{len(students)}")
-    last_update = [0]
-
-    async def on_progress(done, total):
-        if done - last_update[0] >= 5 or done == total:
-            last_update[0] = done
-            try:
-                await progress_msg.edit_text(f"📤 Отправлено: {done}/{total}")
-            except Exception:
-                pass
-
-    mailing = MailingService(bot)
-    sent, failed = await mailing.send_grade_cards(students, on_progress)
-    await progress_msg.edit_text(
-        f"✅ Рассылка завершена.\nОтправлено: {sent}. Ошибок: {failed}.",
-        reply_markup=get_admin_main_menu(),
-    )
+    class_name = callback.data.split(":", 1)[1]
+    grades = grade_repo.get_grades_by_class(class_name)
+    if not grades:
+        await callback.message.edit_text(
+            f"Оценок для класса <b>{class_name}</b> пока нет.",
+            parse_mode="HTML", reply_markup=get_admin_main_menu(),
+        )
+        return
+    recent = grades[:30]
+    lines = []
+    for g in recent:
+        lines.append(f"  {g['date']}  {g['student_name']}: {g['subject']} — <b>{g['grade']}</b>")
+    text = f"<b>Оценки класса {class_name}</b> (последние {len(recent)}):\n\n" + "\n".join(lines)
+    if len(grades) > 30:
+        text += f"\n\n... и ещё {len(grades) - 30}"
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=get_admin_main_menu())

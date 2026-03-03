@@ -62,7 +62,7 @@ Routers are included in this order — the order matters for handler filtering:
 1. `common_handlers` — `/start`, `/cancel`, registration FSM
 2. `admin_handlers` — grade uploads, grade cards, events, announcements, Q&A
 3. `teacher_handlers` — announcement to class
-4. `student_handlers` — view grades, events, anonymous questions
+4. `student_handlers` — view grades, events, questions to admin
 
 ## Database
 
@@ -71,8 +71,9 @@ Routers are included in this order — the order matters for handler filtering:
 ```sql
 Users(ID PK, ФИ, class, isAdmin, isTeacher)
 Grades(id PK, student_name, class, subject, grade, date, uploaded_by, created_at)
-Events(id, title, description, date, time_slots JSON, class_limit, created_by, is_active)
-EventRegistrations(id, event_id FK, user_id, time_slot, student_name, class, registered_at)
+Events(id, title, description, date, time_slots JSON, class_limit, created_by, is_active, published)
+EventSections(id, event_id FK, title, host, time, description, capacity, sort_order)
+EventRegistrations(id, event_id FK, user_id, time_slot, student_name, class, section_id FK, registered_at)
 Announcements(id, text, target, created_by, created_at)
 AnonQuestions(id, text, created_at, answered, answer)
 ```
@@ -108,7 +109,7 @@ State: `TeacherSendAnnouncement`
 ### Admin: Events, Announcements, Q&A
 - Events: Create with title, date, time slots, class limit; students register via student menu
 - Announcements: Broadcast to all students or a specific class
-- Anonymous Q&A: Students submit questions; admin sees and answers them; answer is broadcast
+- Q&A: Students submit questions; admin sees author and answers; answer is sent to the student
 
 ## Grade Card Generation (`services/grade_card_service.py`)
 
@@ -123,12 +124,12 @@ State: `TeacherSendAnnouncement`
 |---|---|
 | `RegistrationStates` | Student registration |
 | `AdminGradeUpload` | Excel grade import |
-| `AdminCreateEvent` | Event creation |
+| `AdminCreateEvent` | Event day creation (title, date, desc, managing sections) |
+| `AdminAddSection` | Adding section to event day |
 | `AdminSendAnnouncement` | Admin announcements |
 | `AdminAnswerQuestion` | Q&A answering |
 | `AdminSendCards` | Bulk grade card sending |
-| `StudentEventRegistration` | Event sign-up |
-| `StudentAnonQuestion` | Question submission |
+| `StudentQuestion` | Question submission |
 | `TeacherSendAnnouncement` | Teacher class announcements |
 
 ## Repository Pattern

@@ -2,6 +2,7 @@
 Сервис генерации табелей успеваемости.
 HTML → PNG через Playwright.
 """
+import asyncio
 import sqlite3
 import json
 import os
@@ -207,6 +208,28 @@ def generate_html(full_name: str, class_name: str, subjects: list,
     return html
 
 
+def _fetch_grades_data(db_path: str, config_path: str, student_name: str):
+    """Синхронное чтение оценок и предметов (для asyncio.to_thread)."""
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT subject, date, grade
+        FROM Grades
+        WHERE student_name = ?
+        ORDER BY date
+    """, (student_name,))
+    grades_data = cursor.fetchall()
+    conn.close()
+
+    if not grades_data:
+        raise Exception(f"Оценки для ученика {student_name} не найдены")
+
+    with open(config_path, 'r', encoding='utf-8') as f:
+        config = json.load(f)
+    subjects = config['subjects']
+    return grades_data, subjects
+
+
 async def generate_grade_card(
     student_name: str,
     class_name: str,
@@ -236,24 +259,9 @@ async def generate_grade_card(
 
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT subject, date, grade
-        FROM Grades
-        WHERE student_name = ?
-        ORDER BY date
-    """, (student_name,))
-    grades_data = cursor.fetchall()
-    conn.close()
-
-    if not grades_data:
-        raise Exception(f"Оценки для ученика {student_name} не найдены")
-
-    with open(config_path, 'r', encoding='utf-8') as f:
-        config = json.load(f)
-    subjects = config['subjects']
+    grades_data, subjects = await asyncio.to_thread(
+        _fetch_grades_data, db_path, config_path, student_name
+    )
 
     now = datetime.now()
     start_year = now.year if now.month >= 9 else now.year - 1

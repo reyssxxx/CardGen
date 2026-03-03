@@ -6,11 +6,9 @@ from aiogram.fsm.state import State, StatesGroup
 
 class RegistrationStates(StatesGroup):
     """Состояния для процесса регистрации"""
-    selecting_role = State()
     selecting_class = State()
     selecting_name = State()
     confirming = State()
-    entering_admin_password = State()
 
 
 class AdminGradeUpload(StatesGroup):
@@ -22,13 +20,21 @@ class AdminGradeUpload(StatesGroup):
 
 
 class AdminCreateEvent(StatesGroup):
-    """Состояния для создания мероприятия"""
+    """Состояния для создания дня мероприятий"""
     entering_title = State()
     entering_date = State()
-    selecting_limit = State()
-    entering_custom_limit = State()
     entering_description = State()
-    confirming = State()
+    managing = State()  # экран управления днём (список секций)
+
+
+class AdminAddSection(StatesGroup):
+    """Состояния для добавления секции к мероприятию"""
+    entering_title = State()
+    entering_host = State()
+    entering_time = State()
+    selecting_capacity = State()
+    entering_custom_capacity = State()
+    entering_description = State()
 
 
 class AdminSendAnnouncement(StatesGroup):
@@ -39,7 +45,7 @@ class AdminSendAnnouncement(StatesGroup):
 
 
 class AdminAnswerQuestion(StatesGroup):
-    """Состояния для ответа на анонимный вопрос"""
+    """Состояния для ответа на вопрос ученика"""
     entering_answer = State()
 
 
@@ -49,14 +55,9 @@ class AdminSendCards(StatesGroup):
     confirming = State()
 
 
-class StudentEventRegistration(StatesGroup):
-    """Состояния для регистрации на мероприятие"""
-    selecting_event = State()
-    selecting_slot = State()
 
-
-class StudentAnonQuestion(StatesGroup):
-    """Состояния для отправки анонимного вопроса"""
+class StudentQuestion(StatesGroup):
+    """Состояния для отправки вопроса администрации"""
     entering_question = State()
     confirming = State()
 

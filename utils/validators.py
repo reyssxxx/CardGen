@@ -65,6 +65,19 @@ def validate_date(date_string: str, format: str = '%d.%m.%Y') -> bool:
             return False
 
 
+def validate_time(time_string: str) -> bool:
+    """
+    Валидация времени в формате ЧЧ:ММ
+    """
+    if not time_string or not isinstance(time_string, str):
+        return False
+    try:
+        datetime.strptime(time_string.strip(), '%H:%M')
+        return True
+    except ValueError:
+        return False
+
+
 def validate_username(username: str) -> bool:
     """
     Валидация Telegram username
