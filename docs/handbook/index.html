@@ -5,420 +5,211 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Хендбук лицеиста — Лицей ЮФУ</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: #191919;
             color: #e2e2e2;
             min-height: 100vh;
-            font-size: 16px;
-            line-height: 1.7;
         }
 
         .page {
-            max-width: 760px;
+            max-width: 800px;
             margin: 0 auto;
-            padding: 80px 48px 120px;
+            padding: 72px 48px 100px;
         }
 
-        /* ── Заголовок страницы ── */
-
         .page-title {
-            font-size: 42px;
+            font-size: 40px;
             font-weight: 700;
-            color: #ffffff;
+            color: #fff;
             letter-spacing: -0.5px;
-            margin-bottom: 20px;
+            margin-bottom: 14px;
         }
 
         .page-lead {
-            color: #9b9b9b;
+            color: #888;
             font-size: 16px;
-            line-height: 1.65;
-            margin-bottom: 56px;
-            max-width: 580px;
+            line-height: 1.6;
+            margin-bottom: 48px;
+            max-width: 540px;
         }
 
-        .page-lead p {
+        /* ── Сетка карточек ── */
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .card {
+            background: #222;
+            border: 1px solid #2e2e2e;
+            border-radius: 10px;
+            padding: 24px;
+            text-decoration: none;
+            display: block;
+            transition: border-color 0.15s, background 0.15s;
+        }
+
+        .card:hover {
+            border-color: #444;
+            background: #272727;
+        }
+
+        .card-icon {
+            font-size: 28px;
+            margin-bottom: 12px;
+            display: block;
+        }
+
+        .card-title {
+            font-size: 17px;
+            font-weight: 600;
+            color: #fff;
             margin-bottom: 6px;
         }
 
-        /* ── Разделы ── */
-
-        .section {
-            margin-bottom: 56px;
+        .card-desc {
+            font-size: 13px;
+            color: #777;
+            line-height: 1.5;
+            margin-bottom: 14px;
         }
 
-        h2 {
-            font-size: 26px;
-            font-weight: 600;
-            color: #ffffff;
-            margin-bottom: 12px;
-            margin-top: 0;
-            letter-spacing: -0.2px;
+        .card-links {
+            list-style: none;
+            padding: 0;
         }
 
-        h3 {
-            font-size: 18px;
-            font-weight: 600;
-            color: #d4d4d4;
-            margin-top: 28px;
-            margin-bottom: 8px;
+        .card-links li {
+            margin-bottom: 4px;
         }
 
-        p {
-            color: #c4c4c4;
-            margin-bottom: 12px;
-        }
-
-        ul, ol {
-            padding-left: 22px;
-            color: #c4c4c4;
-            margin-bottom: 12px;
-        }
-
-        li {
-            margin-bottom: 5px;
-        }
-
-        a {
+        .card-links a {
+            font-size: 13px;
             color: #7eb8f7;
             text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
         }
 
-        a:hover {
+        .card-links a:hover {
             text-decoration: underline;
         }
 
-        strong {
-            color: #e2e2e2;
-            font-weight: 600;
+        .card-links a::before {
+            content: '→';
+            font-size: 11px;
+            opacity: 0.6;
         }
-
-        /* ── Разделитель ── */
-
-        hr {
-            border: none;
-            border-top: 1px solid #2e2e2e;
-            margin: 48px 0;
-        }
-
-        /* ── Выноска (callout) ── */
-
-        .callout {
-            background: #222831;
-            border-left: 3px solid #7eb8f7;
-            border-radius: 4px;
-            padding: 14px 18px;
-            margin: 16px 0;
-            font-size: 15px;
-            color: #b0c4d8;
-        }
-
-        .callout.warn {
-            border-left-color: #f7c948;
-            background: #221f10;
-            color: #c9a837;
-        }
-
-        .callout.tip {
-            border-left-color: #5cb85c;
-            background: #162016;
-            color: #8fce8f;
-        }
-
-        /* ── Таблица ── */
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 16px 0;
-            font-size: 15px;
-        }
-
-        th {
-            background: #252525;
-            color: #8a8a8a;
-            font-weight: 600;
-            text-align: left;
-            padding: 10px 14px;
-            border-bottom: 1px solid #333;
-            font-size: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        td {
-            padding: 10px 14px;
-            border-bottom: 1px solid #242424;
-            color: #c4c4c4;
-            vertical-align: top;
-        }
-
-        tr:last-child td {
-            border-bottom: none;
-        }
-
-        /* ── Бейдж «скоро» ── */
 
         .badge {
             display: inline-block;
             background: #2e2a1a;
             color: #c9a837;
-            font-size: 11px;
+            font-size: 10px;
             font-weight: 600;
-            padding: 2px 8px;
+            padding: 1px 7px;
             border-radius: 20px;
-            letter-spacing: 0.3px;
-            margin-left: 8px;
+            margin-left: 6px;
             vertical-align: middle;
         }
 
-        .placeholder {
-            color: #555;
-            font-style: italic;
-            font-size: 14px;
-        }
-
-        @media (max-width: 600px) {
-            .page {
-                padding: 40px 24px 80px;
-            }
-
-            .page-title {
-                font-size: 30px;
-            }
+        @media (max-width: 580px) {
+            .page { padding: 40px 20px 80px; }
+            .page-title { font-size: 28px; }
+            .grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>
 <body>
-
 <div class="page">
 
-    <h1 class="page-title">📖 Хендбук лицеиста</h1>
-
+    <div class="page-title">📖 Хендбук лицеиста</div>
     <div class="page-lead">
-        <p>Здесь собрано всё, что полезно знать новичку и не только:</p>
-        <p>— как устроен лицей и чего ждать от учёбы;</p>
-        <p>— правила, контакты и важные документы;</p>
-        <p>— мероприятия, олимпиады и жизнь лицея.</p>
-        <p style="margin-top: 10px;">Хендбук пополняется — следи за обновлениями в боте.</p>
+        Здесь собрано всё, что нужно знать новичку и не только.<br>
+        Хендбук пополняется — следи за обновлениями в боте.
     </div>
 
-    <!-- ── О лицее ── -->
-    <div class="section">
-        <h2>🏫 О лицее</h2>
+    <div class="grid">
 
-        <p>
-            Лицей Южного федерального университета открылся в <strong>2016 году</strong> как
-            площадка для непрерывного образования в связке «лицей → вуз».
-            Пятый год подряд (2021–2025) входит в
-            <strong>топ-20 лучших школ Ростовской области</strong> по числу выпускников,
-            поступивших в ведущие вузы России.
-        </p>
-
-        <p>
-            Адрес: <strong>г. Ростов-на-Дону, ул. 23-я линия, 43</strong>.
-        </p>
-
-        <h3>Профили обучения</h3>
-        <ul>
-            <li><strong>Технологический</strong> — углублённые математика, физика, информатика, курс по программированию.</li>
-            <li><strong>Социально-экономический</strong> — история, география, обществознание.</li>
-            <li><strong>Гуманитарный</strong> — русский и английский языки, литература; авторские курсы «Комикс и литература» и «Современная русская литература».</li>
-        </ul>
-
-        <h3>Ссылки</h3>
-        <ul>
-            <li>Официальный сайт: <a href="https://lyceum-sfedu.ru/" target="_blank">lyceum-sfedu.ru</a></li>
-            <li>ВКонтакте: <span class="placeholder">будет добавлено</span></li>
-            <li>Telegram-канал: <span class="placeholder">будет добавлено</span></li>
-        </ul>
-    </div>
-
-    <hr>
-
-    <!-- ── Распорядок дня ── -->
-    <div class="section">
-        <h2>⏰ Распорядок дня <span class="badge">скоро</span></h2>
-
-        <p>Расписание звонков, перемен и обеда появится здесь.</p>
-
-        <table>
-            <thead>
-                <tr>
-                    <th>Урок</th>
-                    <th>Начало</th>
-                    <th>Конец</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr><td>1-й урок</td><td>—</td><td>—</td></tr>
-                <tr><td>2-й урок</td><td>—</td><td>—</td></tr>
-                <tr><td>3-й урок</td><td>—</td><td>—</td></tr>
-                <tr><td>4-й урок</td><td>—</td><td>—</td></tr>
-                <tr><td>5-й урок</td><td>—</td><td>—</td></tr>
-                <tr><td>6-й урок</td><td>—</td><td>—</td></tr>
-            </tbody>
-        </table>
-
-        <div class="callout">
-            💡 Заполним расписание как только согласуем данные с администрацией.
-        </div>
-    </div>
-
-    <hr>
-
-    <!-- ── Правила ── -->
-    <div class="section">
-        <h2>📋 Правила и устав <span class="badge">скоро</span></h2>
-
-        <p>Здесь будут правила поведения, дресс-код и политика использования телефонов.</p>
-
-        <h3>Дресс-код</h3>
-        <p class="placeholder">Требования к внешнему виду будут добавлены.</p>
-
-        <h3>Телефоны на уроках</h3>
-        <p class="placeholder">Правила будут добавлены.</p>
-
-        <h3>Документы</h3>
-        <ul>
-            <li><a href="https://lyceum-sfedu.ru/" target="_blank">Устав лицея</a></li>
-            <li><a href="https://lyceum-sfedu.ru/" target="_blank">Правила приёма</a></li>
-        </ul>
-    </div>
-
-    <hr>
-
-    <!-- ── Учёба и оценки ── -->
-    <div class="section">
-        <h2>🎓 Учёба и оценки</h2>
-
-        <h3>Система оценивания</h3>
-        <p>
-            В лицее используется <strong>5-балльная система</strong>:
-            5 (отлично), 4 (хорошо), 3 (удовлетворительно), 2 (неудовлетворительно).
-            Также фиксируется «н» — отсутствие на уроке.
-        </p>
-
-        <h3>Табель в боте</h3>
-        <p>
-            Твои оценки доступны прямо в боте — раздел <strong>«🎴 Мой табель»</strong>.
-            Табель обновляется раз в две недели автоматически после выгрузки учителем.
-        </p>
-
-        <div class="callout tip">
-            ✅ Видишь ошибку в оценке? Напиши через раздел «❓ Вопросы» в боте или обратись к классному руководителю.
+        <div class="card">
+            <span class="card-icon">🏫</span>
+            <div class="card-title">О лицее</div>
+            <div class="card-desc">История, профили обучения, миссия и ценности</div>
+            <ul class="card-links">
+                <li><a href="pages/about.html">О лицее и профилях</a></li>
+                <li><a href="pages/about.html#contacts">Контакты и адрес</a></li>
+            </ul>
         </div>
 
-        <h3>Олимпиады</h3>
-        <p>
-            Лицей активно поддерживает участие во Всероссийской олимпиаде школьников (ВсОШ).
-            Расписание этапов и актуальная информация — на сайте лицея в разделе
-            <a href="https://lyceum-sfedu.ru/" target="_blank">«ВсОШ»</a>.
-        </p>
-
-        <h3>Подготовка к ОГЭ и ЕГЭ</h3>
-        <p>
-            Лицей проводит подготовительные курсы к ОГЭ/ЕГЭ с октября по май.
-            Подробности — у классного руководителя или на сайте лицея.
-        </p>
-    </div>
-
-    <hr>
-
-    <!-- ── Мероприятия ── -->
-    <div class="section">
-        <h2>🎉 Мероприятия и жизнь лицея</h2>
-
-        <p>
-            В лицее регулярно проходят школьные мероприятия, творческие и интеллектуальные конкурсы.
-            Все ближайшие события доступны в боте — раздел <strong>«📅 Мероприятия»</strong>.
-        </p>
-
-        <h3>Дни открытых дверей 2025/26</h3>
-        <ul>
-            <li>27 сентября</li>
-            <li>22 ноября</li>
-            <li>17 января</li>
-            <li>21 марта</li>
-            <li>16 мая</li>
-        </ul>
-
-        <h3>Запись на мероприятия</h3>
-        <p>
-            Записаться можно прямо в боте: <strong>«📅 Мероприятия»</strong> →
-            выбери событие → нажми «Записаться».
-            Там же можно отменить запись.
-        </p>
-    </div>
-
-    <hr>
-
-    <!-- ── Психологическая поддержка ── -->
-    <div class="section">
-        <h2>💬 Психологическая поддержка</h2>
-
-        <p>
-            В лицее работает психолог. Если тебе нужна помощь или просто хочется поговорить —
-            открой анонимный чат в боте: раздел <strong>«💬 Психолог»</strong>.
-        </p>
-
-        <div class="callout">
-            🔒 Чат анонимный по умолчанию. Ты сам решаешь, раскрывать ли своё имя.
+        <div class="card">
+            <span class="card-icon">⏰</span>
+            <div class="card-title">Распорядок дня <span class="badge">скоро</span></div>
+            <div class="card-desc">Расписание звонков, перемены, обед</div>
+            <ul class="card-links">
+                <li><a href="pages/schedule.html">Расписание звонков</a></li>
+                <li><a href="pages/schedule.html#lunch">Обед и перемены</a></li>
+            </ul>
         </div>
 
-        <h3>Как начать чат</h3>
-        <ol>
-            <li>Открой бот → главное меню.</li>
-            <li>Нажми <strong>«💬 Психолог»</strong>.</li>
-            <li>Нажми <strong>«Открыть анонимный чат»</strong>.</li>
-            <li>Пиши — психолог ответит в рабочее время.</li>
-        </ol>
+        <div class="card">
+            <span class="card-icon">📋</span>
+            <div class="card-title">Правила и устав <span class="badge">скоро</span></div>
+            <div class="card-desc">Дресс-код, телефоны, поведение</div>
+            <ul class="card-links">
+                <li><a href="pages/rules.html">Правила поведения</a></li>
+                <li><a href="pages/rules.html#dresscode">Дресс-код</a></li>
+                <li><a href="pages/rules.html#docs">Документы лицея</a></li>
+            </ul>
+        </div>
+
+        <div class="card">
+            <span class="card-icon">🎓</span>
+            <div class="card-title">Учёба и оценки</div>
+            <div class="card-desc">Система оценок, табель, олимпиады, ЕГЭ</div>
+            <ul class="card-links">
+                <li><a href="pages/grades.html">Система оценивания</a></li>
+                <li><a href="pages/grades.html#bot">Табель в боте</a></li>
+                <li><a href="pages/grades.html#olympiads">Олимпиады и ВсОШ</a></li>
+                <li><a href="pages/grades.html#ege">Подготовка к ЕГЭ</a></li>
+            </ul>
+        </div>
+
+        <div class="card">
+            <span class="card-icon">🎉</span>
+            <div class="card-title">Мероприятия</div>
+            <div class="card-desc">События, запись, дни открытых дверей</div>
+            <ul class="card-links">
+                <li><a href="pages/events.html">Как записаться</a></li>
+                <li><a href="pages/events.html#open-days">Дни открытых дверей</a></li>
+            </ul>
+        </div>
+
+        <div class="card">
+            <span class="card-icon">💬</span>
+            <div class="card-title">Психологическая поддержка</div>
+            <div class="card-desc">Анонимный чат с психологом через бот</div>
+            <ul class="card-links">
+                <li><a href="pages/support.html">Как открыть чат</a></li>
+                <li><a href="pages/support.html#anon">Анонимность и конфиденциальность</a></li>
+            </ul>
+        </div>
+
+        <div class="card">
+            <span class="card-icon">📞</span>
+            <div class="card-title">Контакты <span class="badge">скоро</span></div>
+            <div class="card-desc">Педагоги, администрация, медпункт</div>
+            <ul class="card-links">
+                <li><a href="pages/contacts.html">Все контакты</a></li>
+            </ul>
+        </div>
+
     </div>
-
-    <hr>
-
-    <!-- ── Полезные контакты ── -->
-    <div class="section">
-        <h2>📞 Полезные контакты <span class="badge">скоро</span></h2>
-
-        <p>Здесь появятся контакты классных руководителей, администрации, психолога и медпункта.</p>
-
-        <table>
-            <thead>
-                <tr>
-                    <th>Кто</th>
-                    <th>Контакт</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td>Приёмная лицея</td>
-                    <td><a href="https://lyceum-sfedu.ru/" target="_blank">lyceum-sfedu.ru → Контакты</a></td>
-                </tr>
-                <tr>
-                    <td>Классный руководитель</td>
-                    <td><span class="placeholder">будет добавлено</span></td>
-                </tr>
-                <tr>
-                    <td>Психолог</td>
-                    <td>Через бот — раздел «💬 Психолог»</td>
-                </tr>
-                <tr>
-                    <td>Медпункт</td>
-                    <td><span class="placeholder">будет добавлено</span></td>
-                </tr>
-            </tbody>
-        </table>
-    </div>
-
 </div>
-
 </body>
 </html>
