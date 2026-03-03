@@ -23,7 +23,9 @@ from keyboards.teacher_keyboards import get_teacher_main_menu
 from utils.config_loader import (
     get_all_classes, get_students_by_class,
     is_teacher, get_teacher_name,
+    is_psychologist, get_psychologist_name,
 )
+from keyboards.psychologist_keyboards import get_psychologist_main_menu
 
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 
@@ -81,6 +83,15 @@ async def cmd_start(message: Message, state: FSMContext):
             user_repo.register_teacher(name, user_id)
             user = user_repo.get_user(user_id)
         await _show_menu(message, user, is_new_message=True)
+        return
+
+    # Вход для психолога (не сохраняем в БД — отдельная роль)
+    if is_psychologist(user_id):
+        name = get_psychologist_name(user_id) or message.from_user.full_name or "Психолог"
+        await message.answer(
+            f"Добро пожаловать, {name.split()[0]}! Выбери действие:",
+            reply_markup=get_psychologist_main_menu(),
+        )
         return
 
     # Обычный пользователь — проверяем регистрацию

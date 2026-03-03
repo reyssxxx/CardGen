@@ -13,6 +13,7 @@ class ConfigLoader:
         self.config_file = self.base_path / 'config.json'
         self.students_file = self.base_path / 'students.json'
         self.teachers_file = self.base_path / 'teachers.json'
+        self.psychologists_file = self.base_path / 'psychologists.json'
 
     @lru_cache(maxsize=1)
     def load_config(self) -> Dict:
@@ -153,6 +154,43 @@ class ConfigLoader:
         teacher = self.get_teacher_by_id(user_id)
         if teacher:
             return teacher.get('name')
+        return None
+
+    @lru_cache(maxsize=1)
+    def load_psychologists(self) -> Dict[str, Dict]:
+        """
+        Загрузить psychologists.json с кешированием.
+        Структура: {"telegram_id": {"name": "..."}, ...}
+        """
+        try:
+            with open(self.psychologists_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if not isinstance(data, dict):
+                raise ValueError("Psychologists file must be a dictionary")
+            return data
+        except FileNotFoundError:
+            return {}
+        except json.JSONDecodeError as e:
+            print(f"❌ Ошибка парсинга {self.psychologists_file}: {e}")
+            return {}
+
+    def is_psychologist(self, user_id: int) -> bool:
+        """Проверить, является ли пользователь психологом."""
+        return str(user_id) in self.load_psychologists()
+
+    def get_psychologist_name(self, user_id: int) -> Optional[str]:
+        """Получить имя психолога по Telegram ID."""
+        data = self.load_psychologists().get(str(user_id))
+        return data.get('name') if data else None
+
+    def get_psychologist_user_id(self) -> Optional[int]:
+        """Получить Telegram ID единственного психолога или None."""
+        psychologists = self.load_psychologists()
+        for uid_str in psychologists:
+            try:
+                return int(uid_str)
+            except ValueError:
+                pass
         return None
 
     def get_students_by_class(self, class_name: str) -> List[str]:
@@ -310,3 +348,15 @@ def get_teacher_subjects_by_id(user_id: int) -> List[str]:
 
 def get_teacher_name(user_id: int) -> Optional[str]:
     return _config_loader.get_teacher_name(user_id)
+
+
+def is_psychologist(user_id: int) -> bool:
+    return _config_loader.is_psychologist(user_id)
+
+
+def get_psychologist_name(user_id: int) -> Optional[str]:
+    return _config_loader.get_psychologist_name(user_id)
+
+
+def get_psychologist_user_id() -> Optional[int]:
+    return _config_loader.get_psychologist_user_id()

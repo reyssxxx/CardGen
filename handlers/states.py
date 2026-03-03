@@ -70,3 +70,13 @@ class TeacherSendAnnouncement(StatesGroup):
     confirming = State()
 
 
+class StudentSupport(StatesGroup):
+    """Состояния для анонимного чата с психологом (сторона ученика)"""
+    in_chat = State()
+    confirm_reveal = State()
+    confirm_close = State()
+
+
+class PsychologistChat(StatesGroup):
+    """Состояния для работы психолога с чатом поддержки"""
+    in_chat = State()
