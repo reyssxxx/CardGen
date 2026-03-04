@@ -412,8 +412,8 @@ def stats():
         rows.append({"label": "Оценок в БД", "value": cur.fetchone()[0]})
         cur.execute("SELECT COUNT(*) FROM Events WHERE is_active=1")
         rows.append({"label": "Активных мероприятий", "value": cur.fetchone()[0]})
-        cur.execute("SELECT COUNT(*) FROM AnonQuestions WHERE answered=0")
-        rows.append({"label": "Неотвеченных вопросов", "value": cur.fetchone()[0]})
+        cur.execute("SELECT COUNT(*) FROM Tickets WHERE status='open'")
+        rows.append({"label": "Открытых обращений", "value": cur.fetchone()[0]})
         cur.execute("SELECT COUNT(*) FROM Announcements")
         rows.append({"label": "Объявлений всего", "value": cur.fetchone()[0]})
     finally:

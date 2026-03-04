@@ -13,8 +13,8 @@ from database.user_repository import UserRepository
 from database.grade_repository import GradeRepository
 from database.event_repository import EventRepository
 from database.announcement_repository import AnnouncementRepository
-from database.anon_question_repository import AnonQuestionRepository
-from handlers.states import StudentQuestion
+from database.ticket_repository import TicketRepository
+from handlers.states import StudentTicket
 from keyboards.student_keyboards import (
     get_student_main_menu,
     get_events_keyboard,
@@ -22,11 +22,12 @@ from keyboards.student_keyboards import (
     get_section_detail_keyboard,
     get_event_action_keyboard,
     get_cancel_registration_keyboard,
-    get_question_confirm_keyboard,
     get_my_events_keyboard,
-    get_questions_menu_keyboard,
-    get_my_questions_keyboard,
-    get_question_detail_keyboard,
+    get_announcement_nav_keyboard,
+    get_tickets_menu_keyboard,
+    get_my_tickets_keyboard,
+    get_student_ticket_reply_keyboard,
+    get_student_ticket_closed_keyboard,
 )
 from keyboards.common_keyboards import get_cancel_keyboard
 from services.grade_card_service import generate_grade_card
@@ -38,7 +39,7 @@ user_repo = UserRepository()
 grade_repo = GradeRepository()
 event_repo = EventRepository()
 announce_repo = AnnouncementRepository()
-anon_repo = AnonQuestionRepository()
+ticket_repo = TicketRepository()
 
 
 def _get_student(user_id: int):
@@ -125,25 +126,64 @@ async def menu_events(callback: CallbackQuery):
     await callback.message.edit_text("📅 Выбери мероприятие:", reply_markup=get_events_keyboard(events))
 
 
+async def _send_announcement(callback: CallbackQuery, items: list, page: int):
+    """Отправляет одно объявление с навигацией. Всегда пересоздаёт сообщение."""
+    from datetime import datetime
+    item = items[page]
+    dt = datetime.fromisoformat(item["created_at"]).strftime("%d.%m.%Y %H:%M")
+    author = item.get("author_name") or "Администрация"
+    target_label = "всем" if item["target"] == "all" else f"классу {item['target']}"
+    text = (
+        f"📢 <b>Объявление</b> — {dt}\n"
+        f"👤 От: <b>{author}</b> | Кому: {target_label}\n\n"
+        f"{item['text']}"
+    )
+    markup = get_announcement_nav_keyboard(page, len(items))
+    photo = item.get("photo_file_id")
+
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    if photo:
+        await callback.message.answer_photo(photo, caption=text, parse_mode="HTML", reply_markup=markup)
+    else:
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=markup)
+
+
 @router.callback_query(F.data == "menu:announcements")
 async def menu_announcements(callback: CallbackQuery):
     await callback.answer()
     user = _get_student(callback.from_user.id)
     if not user:
         return
-    items = announce_repo.get_recent(limit=5, target=user["class"])
+    items = announce_repo.get_recent(limit=20, target=user["class"])
     if not items:
         await callback.message.edit_text(
             "Объявлений пока нет.",
             reply_markup=get_student_main_menu(),
         )
         return
-    from datetime import datetime
-    text = "<b>Последние объявления:</b>\n\n"
-    for item in items:
-        dt = datetime.fromisoformat(item["created_at"]).strftime("%d.%m.%Y")
-        text += f"<b>{dt}</b>\n{item['text']}\n\n"
-    await callback.message.edit_text(text.strip(), parse_mode="HTML", reply_markup=get_student_main_menu())
+    await _send_announcement(callback, items, 0)
+
+
+@router.callback_query(F.data.startswith("ann_page:"))
+async def ann_page(callback: CallbackQuery):
+    await callback.answer()
+    user = _get_student(callback.from_user.id)
+    if not user:
+        return
+    page = int(callback.data.split(":")[1])
+    items = announce_repo.get_recent(limit=20, target=user["class"])
+    if not items or page >= len(items):
+        return
+    await _send_announcement(callback, items, page)
+
+
+@router.callback_query(F.data == "ann_noop")
+async def ann_noop(callback: CallbackQuery):
+    await callback.answer()
 
 
 # ── Мероприятия ───────────────────────────────────────────────────────────────
@@ -427,131 +467,218 @@ async def menu_my_events(callback: CallbackQuery):
     )
 
 
-# ── Вопросы ───────────────────────────────────────────────────────────────────
+# ── Обращения (тикеты) ────────────────────────────────────────────────────────
 
-@router.callback_query(F.data == "menu:question")
-async def menu_question(callback: CallbackQuery):
-    await callback.answer()
-    user = _get_student(callback.from_user.id)
-    if not user:
-        return
-    await callback.message.edit_text(
-        "❓ <b>Вопросы администрации</b>",
-        parse_mode="HTML",
-        reply_markup=get_questions_menu_keyboard(),
-    )
+from aiogram import Dispatcher
+from aiogram.fsm.storage.base import StorageKey
+from aiogram.types import ReplyKeyboardRemove
 
 
-@router.callback_query(F.data == "question:ask")
-async def question_ask(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()
-    user = _get_student(callback.from_user.id)
-    if not user:
-        return
-    await state.set_state(StudentQuestion.entering_question)
-    await callback.message.edit_text(
-        "Напиши свой вопрос — он будет отправлен администратору:",
-        reply_markup=get_cancel_keyboard("question_cancel"),
-    )
+def _format_ticket_history(messages: list, student_name: str) -> str:
+    if not messages:
+        return "Сообщений пока нет. Напиши своё обращение!"
+    lines = []
+    for m in messages:
+        time = m["created_at"][11:16]
+        if m["sender_type"] == "student":
+            lines.append(f"<b>Ты</b> [{time}]:\n{m['text']}")
+        else:
+            name = m.get("sender_name") or "Администратор"
+            lines.append(f"<b>{name}</b> [{time}]:\n{m['text']}")
+    return "\n\n".join(lines)
 
 
-@router.message(StudentQuestion.entering_question)
-async def process_question_text(message: Message, state: FSMContext):
-    text = message.text.strip()
-    if len(text) < 5:
-        await message.answer("Пожалуйста, напиши более развернутый вопрос.")
-        return
-    await state.update_data(question_text=text)
-    await state.set_state(StudentQuestion.confirming)
-    await message.answer(
-        f"Твой вопрос:\n\n<i>{text}</i>\n\nОтправить?",
-        parse_mode="HTML",
-        reply_markup=get_question_confirm_keyboard(),
-    )
-
-
-@router.callback_query(StudentQuestion.confirming, F.data == "question_confirm")
-async def confirm_question(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    await callback.answer()
-    data = await state.get_data()
-    text = data["question_text"]
-    question_id = anon_repo.create(text, asker_user_id=callback.from_user.id)
-    await state.clear()
-
-    user = user_repo.get_user(callback.from_user.id)
-    student_info = f"{user['ФИ']}, {user['class']}" if user else "?"
-
-    kb = InlineKeyboardBuilder()
-    kb.button(text="✏️ Ответить", callback_data=f"question_answer:{question_id}")
-    kb.button(text="🗑 Удалить", callback_data=f"question_delete_ask:{question_id}")
-    kb.adjust(2)
-
-    notify_text = (
-        f"❓ Новый вопрос от ученика\n"
-        f"<b>От:</b> {student_info}\n\n"
-        f"<i>{text}</i>"
-    )
-
+async def _notify_admins_ticket(bot: Bot, dp: Dispatcher, ticket_id: int,
+                                 student_name: str, title: str, text: str) -> None:
+    """Отправить уведомление всем незанятым этим тикетом админам."""
+    from keyboards.admin_keyboards import get_tickets_list_keyboard
     admins = user_repo.get_all_admins()
+    notify_text = (
+        f"📬 <b>Новое сообщение в обращении #{ticket_id}</b>\n"
+        f"<b>От:</b> {student_name}\n\n"
+        f"<i>{text[:200]}</i>"
+    )
     for admin_id, _ in admins:
+        # Если этот админ уже смотрит тот же тикет — тихо (он увидит)
+        key = StorageKey(bot_id=bot.id, chat_id=admin_id, user_id=admin_id)
+        state_data = await dp.storage.get_data(key)
+        if state_data.get("admin_ticket_id") == ticket_id:
+            continue
         try:
+            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+            from aiogram.utils.keyboard import InlineKeyboardBuilder
+            kb = InlineKeyboardBuilder()
+            kb.button(text="📋 Открыть обращение", callback_data=f"ticket_open:{ticket_id}")
             await bot.send_message(admin_id, notify_text, parse_mode="HTML", reply_markup=kb.as_markup())
         except Exception:
             pass
 
-    await callback.message.edit_text(
-        "✅ Вопрос отправлен!",
-        reply_markup=get_questions_menu_keyboard(),
-    )
 
-
-@router.callback_query(F.data == "question_cancel")
-async def cancel_question(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()
-    await state.clear()
-    await callback.message.edit_text(
-        "❓ <b>Вопросы администрации</b>",
-        parse_mode="HTML",
-        reply_markup=get_questions_menu_keyboard(),
-    )
-
-
-@router.callback_query(F.data == "question:my")
-async def my_questions(callback: CallbackQuery):
+@router.callback_query(F.data == "menu:question")
+async def menu_tickets(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     user = _get_student(callback.from_user.id)
     if not user:
         return
-    questions = anon_repo.get_by_user(callback.from_user.id)
-    if not questions:
-        await callback.message.edit_text(
-            "Ты ещё не задавал вопросов.",
-            reply_markup=get_questions_menu_keyboard(),
-        )
-        return
+    await state.clear()
     await callback.message.edit_text(
-        "📋 <b>Мои вопросы:</b>",
+        "📬 <b>Обращения к администрации</b>\n\nЗдесь ты можешь написать вопрос или обращение и получить ответ от администратора.",
         parse_mode="HTML",
-        reply_markup=get_my_questions_keyboard(questions),
+        reply_markup=get_tickets_menu_keyboard(),
     )
 
 
-@router.callback_query(F.data.startswith("my_q_view:"))
-async def view_my_question(callback: CallbackQuery):
+@router.callback_query(F.data == "ticket:new")
+async def ticket_new(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    q_id = int(callback.data.split(":")[1])
-    q = anon_repo.get_by_id(q_id)
-    if not q:
-        await callback.message.edit_text("Вопрос не найден.", reply_markup=get_questions_menu_keyboard())
+    user = _get_student(callback.from_user.id)
+    if not user:
         return
-    from datetime import datetime
-    dt = datetime.fromisoformat(q["created_at"]).strftime("%d.%m.%Y")
-    text = f"<i>{q['text']}</i>\n\n<b>Дата:</b> {dt}\n"
-    if q["answered"]:
-        text += f"\n💬 <b>Ответ:</b>\n{q['answer']}"
-    else:
-        text += "\n⏳ Ожидает ответа"
+    await state.set_state(StudentTicket.creating)
     await callback.message.edit_text(
-        text, parse_mode="HTML",
-        reply_markup=get_question_detail_keyboard(),
+        "✏️ Напиши своё обращение — его увидит администратор и ответит тебе здесь:",
+        reply_markup=get_cancel_keyboard("ticket:cancel"),
+    )
+
+
+@router.message(StudentTicket.creating, F.text)
+async def ticket_create_text(message: Message, state: FSMContext, bot: Bot, dp: Dispatcher):
+    text = message.text.strip()
+    if len(text) < 5:
+        await message.answer("Пожалуйста, напиши более развернутое обращение.")
+        return
+    user = user_repo.get_user(message.from_user.id)
+    if not user:
+        await state.clear()
+        return
+    student_name = user["ФИ"]
+    student_class = user.get("class", "")
+    title = text[:80]
+    ticket_id = ticket_repo.create(message.from_user.id, student_name, student_class, title)
+    ticket_repo.add_message(ticket_id, "student", student_name, text)
+    await state.set_state(StudentTicket.in_thread)
+    await state.update_data(ticket_id=ticket_id)
+    await message.answer(
+        f"✅ <b>Обращение #{ticket_id} открыто</b>\n\nАдминистратор скоро ответит. "
+        "Ты можешь продолжать писать сообщения — они добавятся в это обращение.",
+        parse_mode="HTML",
+        reply_markup=get_student_ticket_reply_keyboard(),
+    )
+    await _notify_admins_ticket(bot, dp, ticket_id, student_name, title, text)
+
+
+@router.message(StudentTicket.in_thread, F.text == "🚪 Закрыть обращение")
+async def ticket_student_close(message: Message, state: FSMContext, bot: Bot, dp: Dispatcher):
+    data = await state.get_data()
+    ticket_id = data.get("ticket_id")
+    ticket_repo.close(ticket_id)
+    await state.clear()
+    await message.answer(
+        f"🔴 Обращение #{ticket_id} закрыто.",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    await message.answer("🏠 Главное меню:", reply_markup=get_student_main_menu())
+    # Уведомить админов что тикет закрыт
+    admins = user_repo.get_all_admins()
+    for admin_id, _ in admins:
+        key = StorageKey(bot_id=bot.id, chat_id=admin_id, user_id=admin_id)
+        state_data = await dp.storage.get_data(key)
+        if state_data.get("admin_ticket_id") == ticket_id:
+            try:
+                await bot.send_message(
+                    admin_id,
+                    f"🔴 Ученик закрыл обращение #{ticket_id}.",
+                )
+            except Exception:
+                pass
+
+
+@router.message(StudentTicket.in_thread, F.text == "◀️ В главное меню")
+async def ticket_student_to_menu(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("🏠 Главное меню:", reply_markup=ReplyKeyboardRemove())
+    await message.answer("Выбери раздел:", reply_markup=get_student_main_menu())
+
+
+@router.message(StudentTicket.in_thread, F.text)
+async def ticket_student_message(message: Message, state: FSMContext, bot: Bot, dp: Dispatcher):
+    data = await state.get_data()
+    ticket_id = data.get("ticket_id")
+    ticket = ticket_repo.get_ticket(ticket_id)
+    if not ticket or ticket["status"] == "closed":
+        await state.clear()
+        await message.answer(
+            "Это обращение уже закрыто.",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        return
+    user = user_repo.get_user(message.from_user.id)
+    student_name = user["ФИ"] if user else "Ученик"
+    ticket_repo.add_message(ticket_id, "student", student_name, message.text.strip())
+    await _notify_admins_ticket(bot, dp, ticket_id, student_name, ticket["title"], message.text.strip())
+
+
+@router.callback_query(F.data == "ticket:my")
+async def my_tickets(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    user = _get_student(callback.from_user.id)
+    if not user:
+        return
+    await state.clear()
+    tickets = ticket_repo.get_by_student(callback.from_user.id)
+    if not tickets:
+        await callback.message.edit_text(
+            "У тебя пока нет обращений.",
+            reply_markup=get_tickets_menu_keyboard(),
+        )
+        return
+    await callback.message.edit_text(
+        "📋 <b>Мои обращения:</b>",
+        parse_mode="HTML",
+        reply_markup=get_my_tickets_keyboard(tickets),
+    )
+
+
+@router.callback_query(F.data.startswith("ticket_view:"))
+async def view_ticket(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    ticket_id = int(callback.data.split(":")[1])
+    ticket = ticket_repo.get_ticket(ticket_id)
+    if not ticket:
+        await callback.message.edit_text("Обращение не найдено.", reply_markup=get_tickets_menu_keyboard())
+        return
+    messages = ticket_repo.get_messages(ticket_id)
+    student_name = ticket.get("student_name", "")
+    history = _format_ticket_history(messages, student_name)
+    status = "🟢 Открыто" if ticket["status"] == "open" else "🔴 Закрыто"
+    header = f"📬 <b>Обращение #{ticket_id}</b> ({status})\n\n"
+    text = header + history
+    if ticket["status"] == "open":
+        await state.set_state(StudentTicket.in_thread)
+        await state.update_data(ticket_id=ticket_id)
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.message.answer(
+            text,
+            parse_mode="HTML",
+            reply_markup=get_student_ticket_reply_keyboard(),
+        )
+    else:
+        await callback.message.edit_text(
+            text,
+            parse_mode="HTML",
+            reply_markup=get_student_ticket_closed_keyboard(),
+        )
+
+
+@router.callback_query(F.data == "ticket:cancel")
+async def ticket_cancel(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.clear()
+    await callback.message.edit_text(
+        "📬 <b>Обращения к администрации</b>",
+        parse_mode="HTML",
+        reply_markup=get_tickets_menu_keyboard(),
     )

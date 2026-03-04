@@ -1,6 +1,7 @@
 """
 Хендлеры администратора: загрузка оценок и рассылка табелей.
 """
+import hashlib
 import os
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, BufferedInputFile
@@ -90,13 +91,26 @@ async def process_excel_file(message: Message, state: FSMContext, bot: Bot):
     file_path = f"data/uploaded_grades/{class_name}_{doc.file_id}.xlsx"
     os.makedirs("data/uploaded_grades", exist_ok=True)
     await bot.download(doc, destination=file_path)
+
+    # Проверяем хэш файла на дубль
+    with open(file_path, 'rb') as f:
+        file_hash = hashlib.sha256(f.read()).hexdigest()
+    if grade_repo.is_file_uploaded(file_hash):
+        await wait.delete()
+        os.remove(file_path)
+        await message.answer(
+            "⚠️ Этот файл уже был загружен ранее. Повторная загрузка не выполнена.",
+            reply_markup=get_cancel_keyboard(),
+        )
+        return
+
     try:
         result = parse_grades_excel(file_path, class_name, students)
     except Exception as e:
         await wait.delete()
         await message.answer(f"Ошибка при обработке файла:\n{e}")
         return
-    await state.update_data(parsed_result=result, file_path=file_path)
+    await state.update_data(parsed_result=result, file_path=file_path, file_hash=file_hash)
     await state.set_state(AdminGradeUpload.confirming)
     skipped_text = ""
     if result["skipped"]:
@@ -122,11 +136,12 @@ async def confirm_grades(callback: CallbackQuery, state: FSMContext, bot: Bot):
     result = data["parsed_result"]
     class_name = data.get("selected_class", "")
     inserted = grade_repo.bulk_insert_grades(result["grades"])
-    duplicates = result["count"] - inserted
+    file_hash = data.get("file_hash")
+    if file_hash:
+        grade_repo.save_file_hash(file_hash, class_name)
     await state.clear()
-    dup_text = f"\n⚠️ Пропущено дублей: {duplicates}" if duplicates else ""
     await callback.message.edit_text(
-        f"✅ Оценки сохранены: {inserted} записей.{dup_text}",
+        f"✅ Оценки сохранены: {inserted} записей.",
         reply_markup=get_admin_main_menu(),
     )
 

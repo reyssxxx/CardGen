@@ -13,7 +13,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 logger = logging.getLogger(__name__)
 
 
-VALID_GRADES = {'2', '3', '4', '5', 'н', 'б'}
+VALID_GRADES = {'1', '2', '3', '4', '5', 'н', 'б'}
 
 
 def parse_grades_excel(file_path: str, class_name: str, valid_students: list) -> dict:
@@ -53,7 +53,7 @@ def parse_grades_excel(file_path: str, class_name: str, valid_students: list) ->
     for cell in period_row[1:]:
         if cell is None:
             continue
-        parsed = _parse_date(str(cell).strip())
+        parsed = _parse_date(cell)
         if parsed and period_start is None:
             period_start = parsed
         elif parsed and period_end is None:
@@ -225,7 +225,7 @@ def generate_template_excel(class_name: str, students: list, subjects: list) -> 
 
     # Инструкция под таблицей
     note_row = len(subjects) + 4
-    c = ws.cell(note_row, 1, "Оценки: 2 3 4 5 н б  ·  несколько через пробел: 5 4 3")
+    c = ws.cell(note_row, 1, "Оценки: 1 2 3 4 5 н б  ·  несколько через пробел: 5 4 3")
     c.font = Font(color="64748B", italic=True, size=9)
 
     buf = io.BytesIO()
@@ -234,8 +234,14 @@ def generate_template_excel(class_name: str, students: list, subjects: list) -> 
     return buf.read()
 
 
-def _parse_date(value: str) -> Optional[datetime]:
-    """Попытаться распарсить дату из строки."""
+def _parse_date(value) -> Optional[datetime]:
+    """Попытаться распарсить дату. Принимает datetime-объект или строку."""
+    if isinstance(value, datetime):
+        return value
+    if not isinstance(value, str):
+        value = str(value).strip()
+    else:
+        value = value.strip()
     for fmt in ('%d.%m.%Y', '%d.%m.%y', '%Y-%m-%d', '%d/%m/%Y'):
         try:
             return datetime.strptime(value, fmt)

@@ -60,16 +60,12 @@ class GradeRepository:
                     'uploaded_by': g.get('uploaded_by'),
                 })
             cursor.executemany('''
-                INSERT OR IGNORE INTO Grades (student_name, class, subject, grade, date, uploaded_by)
+                INSERT INTO Grades (student_name, class, subject, grade, date, uploaded_by)
                 VALUES (:student_name, :class, :subject, :grade, :date, :uploaded_by)
             ''', normalized)
 
             conn.commit()
-            inserted = cursor.rowcount
-            skipped = len(normalized) - inserted
-            if skipped:
-                logger.info("add_grades_bulk: %d inserted, %d duplicates skipped", inserted, skipped)
-            return inserted
+            return cursor.rowcount
 
         except Exception as e:
             conn.rollback()
@@ -240,6 +236,29 @@ class GradeRepository:
             ''', (class_name,))
             return [{'student_name': row['student_name'], 'avg': row['avg']}
                     for row in cursor.fetchall()]
+        finally:
+            conn.close()
+
+    def is_file_uploaded(self, file_hash: str) -> bool:
+        """Проверить, загружался ли уже файл с таким хэшем."""
+        conn = self.db_manager.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute('SELECT 1 FROM UploadedFiles WHERE file_hash=?', (file_hash,))
+            return cursor.fetchone() is not None
+        finally:
+            conn.close()
+
+    def save_file_hash(self, file_hash: str, class_name: str) -> None:
+        """Сохранить хэш загруженного файла."""
+        conn = self.db_manager.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                'INSERT OR IGNORE INTO UploadedFiles (file_hash, class) VALUES (?, ?)',
+                (file_hash, class_name),
+            )
+            conn.commit()
         finally:
             conn.close()
 

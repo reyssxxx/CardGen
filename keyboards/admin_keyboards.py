@@ -28,9 +28,6 @@ def get_admin_main_menu() -> InlineKeyboardMarkup:
     builder.row(
         InlineKeyboardButton(text="🗑 Управление оценками", callback_data="menu:grade_mgmt"),
     )
-    builder.row(
-        InlineKeyboardButton(text="🚀 Разослать табели вручную", callback_data="menu:mailing_now"),
-    )
     return builder.as_markup()
 
 
@@ -227,41 +224,33 @@ def get_announcement_confirm_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def get_questions_keyboard(questions: List[dict]) -> InlineKeyboardMarkup:
+def get_tickets_list_keyboard(tickets: List[dict], page: int = 0,
+                              has_prev: bool = False, has_next: bool = False) -> InlineKeyboardMarkup:
+    """Список тикетов для админа."""
     builder = InlineKeyboardBuilder()
-    for q in questions:
-        prefix = "❓" if not q["answered"] else "✅"
-        short = q["text"][:40] + ("..." if len(q["text"]) > 40 else "")
+    for t in tickets:
+        status = "🟢" if t.get("status") == "open" else "🔴"
+        short_title = t["title"][:30] + "…" if len(t["title"]) > 30 else t["title"]
+        name = t.get("student_name") or "Ученик"
+        label = f"{status} {name} — {short_title}"
         builder.row(
-            InlineKeyboardButton(
-                text=f"{prefix} {short}",
-                callback_data=f"question_view:{q['id']}",
-            )
+            InlineKeyboardButton(text=label, callback_data=f"ticket_open:{t['id']}")
         )
+    nav = []
+    if has_prev:
+        nav.append(InlineKeyboardButton(text="◀️", callback_data=f"tickets_page:{page - 1}"))
+    if has_next:
+        nav.append(InlineKeyboardButton(text="▶️", callback_data=f"tickets_page:{page + 1}"))
+    if nav:
+        builder.row(*nav)
     builder.row(InlineKeyboardButton(text="◀️ Меню", callback_data="admin_cancel"))
     return builder.as_markup()
 
 
-def get_question_actions_keyboard(question_id: int, answered: bool) -> InlineKeyboardMarkup:
+def get_admin_ticket_closed_keyboard() -> InlineKeyboardMarkup:
+    """Кнопка для закрытого тикета (у админа)."""
     builder = InlineKeyboardBuilder()
-    if not answered:
-        builder.row(
-            InlineKeyboardButton(text="✏️ Ответить", callback_data=f"question_answer:{question_id}"),
-        )
-    builder.row(
-        InlineKeyboardButton(text="🗑 Удалить", callback_data=f"question_delete_ask:{question_id}"),
-        InlineKeyboardButton(text="◀️ Назад", callback_data="questions_back"),
-    )
-    return builder.as_markup()
-
-
-def get_question_delete_confirm_keyboard(question_id: int) -> InlineKeyboardMarkup:
-    """Подтверждение удаления вопроса."""
-    builder = InlineKeyboardBuilder()
-    builder.row(
-        InlineKeyboardButton(text="✅ Да, удалить", callback_data=f"question_delete:{question_id}"),
-        InlineKeyboardButton(text="◀️ Отмена", callback_data=f"question_view:{question_id}"),
-    )
+    builder.row(InlineKeyboardButton(text="◀️ К списку обращений", callback_data="menu:questions"))
     return builder.as_markup()
 
 
@@ -280,15 +269,6 @@ def get_stats_class_keyboard(classes: List[str]) -> InlineKeyboardMarkup:
     builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="admin_cancel"))
     return builder.as_markup()
 
-
-def get_mailing_confirm_keyboard() -> InlineKeyboardMarkup:
-    """Подтверждение ручной рассылки табелей."""
-    builder = InlineKeyboardBuilder()
-    builder.row(
-        InlineKeyboardButton(text="✅ Разослать всем", callback_data="mailing_now_confirm"),
-        InlineKeyboardButton(text="❌ Отмена", callback_data="admin_cancel"),
-    )
-    return builder.as_markup()
 
 
 def get_grade_mgmt_students_keyboard(student_names: List[str]) -> InlineKeyboardMarkup:

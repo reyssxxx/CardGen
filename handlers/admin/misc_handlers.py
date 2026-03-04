@@ -1,22 +1,22 @@
 """
 Хендлеры администратора: объявления, вопросы, статистика, ученики, рассылка.
 """
-from aiogram import Router, F, Bot
-from aiogram.types import Message, CallbackQuery
+from aiogram import Router, F, Bot, Dispatcher
+from aiogram.types import Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.storage.base import StorageKey
 
-from handlers.admin.common import is_admin, user_repo, grade_repo, announce_repo, anon_repo
-from handlers.states import AdminSendAnnouncement, AdminAnswerQuestion
+from handlers.admin.common import is_admin, user_repo, grade_repo, announce_repo
+from database.ticket_repository import TicketRepository
+from handlers.states import AdminSendAnnouncement, AdminTicket
 from keyboards.admin_keyboards import (
     get_admin_main_menu,
     get_class_selection_keyboard,
     get_announcement_audience_keyboard,
     get_announcement_confirm_keyboard,
-    get_questions_keyboard,
-    get_question_actions_keyboard,
-    get_question_delete_confirm_keyboard,
+    get_tickets_list_keyboard,
+    get_admin_ticket_closed_keyboard,
     get_stats_class_keyboard,
-    get_mailing_confirm_keyboard,
     get_cancel_keyboard,
 )
 from services.mailing_service import MailingService
@@ -24,11 +24,45 @@ from utils.config_loader import get_all_classes
 from utils.pagination import paginate
 
 router = Router()
+ticket_repo = TicketRepository()
 
 
-def _questions_page_markup(questions, page):
-    page_items, has_prev, has_next = paginate(questions, page)
-    return get_questions_keyboard(page_items, page=page, has_prev=has_prev, has_next=has_next)
+def _tickets_page_markup(tickets, page):
+    page_items, has_prev, has_next = paginate(tickets, page)
+    return get_tickets_list_keyboard(page_items, page=page, has_prev=has_prev, has_next=has_next)
+
+
+def _format_ticket_history(messages: list) -> str:
+    if not messages:
+        return "Сообщений пока нет."
+    lines = []
+    for m in messages:
+        time = m["created_at"][11:16]
+        if m["sender_type"] == "student":
+            name = m.get("sender_name") or "Ученик"
+            lines.append(f"<b>{name}</b> [{time}]:\n{m['text']}")
+        else:
+            name = m.get("sender_name") or "Администратор"
+            lines.append(f"<b>{name} (адм.)</b> [{time}]:\n{m['text']}")
+    return "\n\n".join(lines)
+
+
+async def _notify_student_ticket(bot: Bot, dp: Dispatcher, student_user_id: int,
+                                  ticket_id: int, text: str) -> None:
+    """Уведомить студента о новом сообщении в тикете. Если студент уже в чате — тихо."""
+    key = StorageKey(bot_id=bot.id, chat_id=student_user_id, user_id=student_user_id)
+    state_data = await dp.storage.get_data(key)
+    student_in_thread = state_data.get("ticket_id") == ticket_id
+    try:
+        if student_in_thread:
+            await bot.send_message(student_user_id, text, parse_mode="HTML")
+        else:
+            from aiogram.utils.keyboard import InlineKeyboardBuilder
+            kb = InlineKeyboardBuilder()
+            kb.button(text="📋 Открыть обращение", callback_data=f"ticket_view:{ticket_id}")
+            await bot.send_message(student_user_id, text, parse_mode="HTML", reply_markup=kb.as_markup())
+    except Exception:
+        pass
 
 
 # ── Отмена ────────────────────────────────────────────────────────────────────
@@ -128,7 +162,7 @@ async def confirm_announcement(callback: CallbackQuery, state: FSMContext, bot: 
     text = data["announce_text"]
     target = data["announce_target"]
     photo_file_id = data.get("announce_photo")
-    announce_repo.create(text, callback.from_user.id, target)
+    announce_repo.create(text, callback.from_user.id, target, photo_file_id=photo_file_id)
     if target == "all":
         students = user_repo.get_all_students()
         recipients = [(uid, name) for uid, name, _ in students]
@@ -145,120 +179,146 @@ async def confirm_announcement(callback: CallbackQuery, state: FSMContext, bot: 
         await callback.message.edit_text(result_text, reply_markup=get_admin_main_menu())
 
 
-# ── Анонимные вопросы ─────────────────────────────────────────────────────────
+# ── Тикеты (обращения учеников) ───────────────────────────────────────────────
 
-def _questions_header() -> str:
-    stats = anon_repo.get_stats()
+def _tickets_header() -> str:
+    stats = ticket_repo.get_stats()
     return (
-        f"❓ <b>Анонимные вопросы</b>\n"
+        f"📬 <b>Обращения учеников</b>\n"
         f"Всего: {stats['total']} | "
-        f"Без ответа: {stats['unanswered']} | "
-        f"Отвечено: {stats['answered']}"
+        f"Открытых: {stats['open']} | "
+        f"Закрытых: {stats['closed']}"
     )
 
 
 @router.callback_query(F.data == "menu:questions")
-async def menu_questions(callback: CallbackQuery):
+async def menu_tickets_admin(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id):
         await callback.answer("Нет доступа.", show_alert=True)
         return
     await callback.answer()
-    questions = anon_repo.get_all()
-    header = _questions_header()
-    if not questions:
-        await callback.message.edit_text(header + "\n\nВопросов пока нет.", parse_mode="HTML", reply_markup=get_admin_main_menu())
+    await state.clear()
+    tickets = ticket_repo.get_all_open()
+    header = _tickets_header()
+    if not tickets:
+        await callback.message.edit_text(
+            header + "\n\nОткрытых обращений нет.",
+            parse_mode="HTML",
+            reply_markup=get_admin_main_menu(),
+        )
         return
-    await callback.message.edit_text(header, parse_mode="HTML", reply_markup=_questions_page_markup(questions, 0))
+    await callback.message.edit_text(
+        header, parse_mode="HTML",
+        reply_markup=_tickets_page_markup(tickets, 0),
+    )
 
 
-@router.callback_query(F.data.startswith("questions_page:"))
-async def questions_paginate(callback: CallbackQuery):
+@router.callback_query(F.data.startswith("tickets_page:"))
+async def tickets_paginate(callback: CallbackQuery):
     await callback.answer()
     page = int(callback.data.split(":")[1])
-    questions = anon_repo.get_all()
-    header = _questions_header()
-    if not questions:
-        await callback.message.edit_text(header + "\n\nВопросов пока нет.", parse_mode="HTML", reply_markup=get_admin_main_menu())
+    tickets = ticket_repo.get_all_open()
+    header = _tickets_header()
+    if not tickets:
+        await callback.message.edit_text(
+            header + "\n\nОткрытых обращений нет.",
+            parse_mode="HTML",
+            reply_markup=get_admin_main_menu(),
+        )
         return
-    await callback.message.edit_text(header, parse_mode="HTML", reply_markup=_questions_page_markup(questions, page))
-
-
-@router.callback_query(F.data.startswith("question_view:"))
-async def admin_view_question(callback: CallbackQuery):
-    await callback.answer()
-    q_id = int(callback.data.split(":")[1])
-    q = anon_repo.get_by_id(q_id)
-    if not q:
-        await callback.message.edit_text("Вопрос не найден.")
-        return
-    from datetime import datetime
-    dt = datetime.fromisoformat(q["created_at"]).strftime("%d.%m.%Y %H:%M")
-    text = f"<i>{q['text']}</i>\n\n{dt}"
-    if q["answered"]:
-        text += f"\n\nОтвет: {q['answer']}"
     await callback.message.edit_text(
-        text, parse_mode="HTML",
-        reply_markup=get_question_actions_keyboard(q_id, bool(q["answered"])),
+        header, parse_mode="HTML",
+        reply_markup=_tickets_page_markup(tickets, page),
     )
 
 
-@router.callback_query(F.data.startswith("question_answer:"))
-async def start_answer_question(callback: CallbackQuery, state: FSMContext):
+@router.callback_query(F.data.startswith("ticket_open:"))
+async def admin_open_ticket(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    q_id = int(callback.data.split(":")[1])
-    await state.update_data(answering_question_id=q_id)
-    await state.set_state(AdminAnswerQuestion.entering_answer)
-    await callback.message.edit_text("Введи ответ на вопрос:", reply_markup=get_cancel_keyboard())
-
-
-@router.message(AdminAnswerQuestion.entering_answer)
-async def answer_enter_text(message: Message, state: FSMContext, bot: Bot):
-    data = await state.get_data()
-    q_id = data["answering_question_id"]
-    answer = message.text.strip()
-    q = anon_repo.get_by_id(q_id)
-    anon_repo.answer(q_id, answer)
-    send_text = f"💬 Ответ на твой вопрос:\n\n<i>{q['text']}</i>\n\n{answer}"
-    asker_id = q.get("asker_user_id")
-    await state.clear()
-    if not asker_id:
-        result = "✅ Ответ сохранён. Автор вопроса не идентифицирован (вопрос создан до обновления системы)."
-    else:
+    ticket_id = int(callback.data.split(":")[1])
+    ticket = ticket_repo.get_ticket(ticket_id)
+    if not ticket:
+        await callback.message.edit_text("Обращение не найдено.", reply_markup=get_admin_main_menu())
+        return
+    messages = ticket_repo.get_messages(ticket_id)
+    history = _format_ticket_history(messages)
+    status = "🟢 Открыто" if ticket["status"] == "open" else "🔴 Закрыто"
+    student_info = f"{ticket.get('student_name', '?')}, {ticket.get('student_class', '?')}"
+    header = (
+        f"📬 <b>Обращение #{ticket_id}</b> ({status})\n"
+        f"<b>Ученик:</b> {student_info}\n\n"
+    )
+    text = header + history
+    if ticket["status"] == "open":
+        await state.set_state(AdminTicket.in_thread)
+        await state.update_data(admin_ticket_id=ticket_id, ticket_student_id=ticket["student_user_id"])
+        reply_kb = ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="🚪 Закрыть обращение"), KeyboardButton(text="◀️ К списку")]],
+            resize_keyboard=True,
+            one_time_keyboard=False,
+            input_field_placeholder="Написать ответ...",
+        )
         try:
-            await bot.send_message(asker_id, send_text, parse_mode="HTML")
-            result = "✅ Ответ отправлен автору вопроса."
+            await callback.message.delete()
         except Exception:
-            result = "✅ Ответ сохранён (не удалось доставить — пользователь мог заблокировать бота)."
-    await message.answer(result, reply_markup=get_admin_main_menu())
+            pass
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=reply_kb)
+    else:
+        await callback.message.edit_text(
+            text, parse_mode="HTML",
+            reply_markup=get_admin_ticket_closed_keyboard(),
+        )
 
 
-@router.callback_query(F.data.startswith("question_delete_ask:"))
-async def ask_delete_question(callback: CallbackQuery):
-    await callback.answer()
-    q_id = int(callback.data.split(":")[1])
-    await callback.message.edit_text(
-        "Удалить этот вопрос? Это действие нельзя отменить.",
-        reply_markup=get_question_delete_confirm_keyboard(q_id),
+@router.message(AdminTicket.in_thread, F.text == "🚪 Закрыть обращение")
+async def admin_close_ticket(message: Message, state: FSMContext, bot: Bot, dp: Dispatcher):
+    data = await state.get_data()
+    ticket_id = data.get("admin_ticket_id")
+    student_id = data.get("ticket_student_id")
+    ticket_repo.close(ticket_id)
+    await state.clear()
+    await message.answer(
+        f"🔴 Обращение #{ticket_id} закрыто.",
+        reply_markup=ReplyKeyboardRemove(),
     )
+    if student_id:
+        await _notify_student_ticket(
+            bot, dp, student_id, ticket_id,
+            f"🔴 Администратор закрыл обращение #{ticket_id}.",
+        )
 
 
-@router.callback_query(F.data.startswith("question_delete:"))
-async def delete_question(callback: CallbackQuery):
-    await callback.answer()
-    q_id = int(callback.data.split(":")[1])
-    anon_repo.delete(q_id)
-    await callback.message.edit_text("Вопрос удалён.", reply_markup=get_admin_main_menu())
-
-
-@router.callback_query(F.data == "questions_back")
-async def back_to_questions(callback: CallbackQuery):
-    await callback.answer()
-    questions = anon_repo.get_all()
-    header = _questions_header()
-    if not questions:
-        await callback.message.edit_text(header + "\n\nВопросов пока нет.", parse_mode="HTML", reply_markup=get_admin_main_menu())
+@router.message(AdminTicket.in_thread, F.text == "◀️ К списку")
+async def admin_exit_ticket(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("Выход из обращения.", reply_markup=ReplyKeyboardRemove())
+    tickets = ticket_repo.get_all_open()
+    header = _tickets_header()
+    if not tickets:
+        await message.answer(header + "\n\nОткрытых обращений нет.", parse_mode="HTML", reply_markup=get_admin_main_menu())
         return
-    await callback.message.edit_text(header, parse_mode="HTML", reply_markup=_questions_page_markup(questions, 0))
+    await message.answer(header, parse_mode="HTML", reply_markup=_tickets_page_markup(tickets, 0))
+
+
+@router.message(AdminTicket.in_thread, F.text)
+async def admin_ticket_reply(message: Message, state: FSMContext, bot: Bot, dp: Dispatcher):
+    data = await state.get_data()
+    ticket_id = data.get("admin_ticket_id")
+    student_id = data.get("ticket_student_id")
+    ticket = ticket_repo.get_ticket(ticket_id)
+    if not ticket or ticket["status"] == "closed":
+        await state.clear()
+        await message.answer("Обращение уже закрыто.", reply_markup=ReplyKeyboardRemove())
+        return
+    admin = user_repo.get_user(message.from_user.id)
+    admin_name = admin["ФИ"] if admin else "Администратор"
+    ticket_repo.add_message(ticket_id, "admin", admin_name, message.text.strip())
+    if student_id:
+        notify_text = (
+            f"💬 <b>Ответ по обращению #{ticket_id}</b>\n\n"
+            f"<b>{admin_name}:</b> {message.text.strip()}"
+        )
+        await _notify_student_ticket(bot, dp, student_id, ticket_id, notify_text)
 
 
 # ── Статистика по классу ───────────────────────────────────────────────────────
@@ -301,42 +361,3 @@ async def stats_show_class(callback: CallbackQuery):
     else:
         text += "Оценок ещё не выставлено."
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=get_admin_main_menu())
-
-
-# ── Ручная рассылка табелей ───────────────────────────────────────────────────
-
-@router.callback_query(F.data == "menu:mailing_now")
-async def menu_mailing_now(callback: CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        await callback.answer("Нет доступа.", show_alert=True)
-        return
-    await callback.answer()
-    count = len(user_repo.get_all_students())
-    await callback.message.edit_text(
-        f"Разослать табели всем <b>{count}</b> ученикам прямо сейчас?",
-        parse_mode="HTML",
-        reply_markup=get_mailing_confirm_keyboard(),
-    )
-
-
-@router.callback_query(F.data == "mailing_now_confirm")
-async def mailing_now_confirm(callback: CallbackQuery, bot: Bot):
-    await callback.answer()
-    students = user_repo.get_all_students()
-    progress_msg = await callback.message.edit_text(f"Начинаю рассылку... 0/{len(students)}")
-    last_update = [0]
-
-    async def on_progress(done, total):
-        if done - last_update[0] >= 5 or done == total:
-            last_update[0] = done
-            try:
-                await progress_msg.edit_text(f"📤 Отправлено: {done}/{total}")
-            except Exception:
-                pass
-
-    mailing = MailingService(bot)
-    sent, failed = await mailing.send_grade_cards(students, on_progress)
-    await progress_msg.edit_text(
-        f"✅ Рассылка завершена.\nОтправлено: {sent}. Ошибок: {failed}.",
-        reply_markup=get_admin_main_menu(),
-    )

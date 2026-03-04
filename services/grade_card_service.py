@@ -125,8 +125,16 @@ def generate_html(full_name: str, class_name: str, subjects: list,
             .average {{
                 display: inline-block;
                 font-weight: 700;
-                color: #1e40af;
+                color: #15803d;
                 font-size: 18px;
+            }}
+            td.avg-col {{
+                background: #f0fdf4 !important;
+                border-left: 2px solid #86efac;
+            }}
+            th.avg-col {{
+                background: #16a34a;
+                border-left: 2px solid #86efac;
             }}
             .empty-cell {{
                 color: #cbd5e0;
@@ -165,7 +173,7 @@ def generate_html(full_name: str, class_name: str, subjects: list,
         period_str = period.strftime("%d.%m")
         html += f"\n                        <th>{period_str}</th>"
 
-    html += "\n                        <th>Ср. балл</th>"
+    html += "\n                        <th class=\"avg-col\">Ср. балл</th>"
     html += """
                     </tr>
                 </thead>
@@ -196,9 +204,9 @@ def generate_html(full_name: str, class_name: str, subjects: list,
 
         if all_grades:
             average = round(sum(all_grades) / len(all_grades), 2)
-            html += f"\n                        <td><span class=\"average\">{average}</span></td>"
+            html += f"\n                        <td class=\"avg-col\"><span class=\"average\">{average}</span></td>"
         else:
-            html += "\n                        <td><span class=\"empty-cell\">—</span></td>"
+            html += "\n                        <td class=\"avg-col\"><span class=\"empty-cell\">—</span></td>"
 
         html += "\n                    </tr>"
 

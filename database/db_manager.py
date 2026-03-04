@@ -73,9 +73,20 @@ class DatabaseManager:
             ''')
 
             # Уникальный индекс: защита от дублей при повторной загрузке Excel
+            # Миграция: удалить старый уникальный индекс (мешал нескольким одинаковым оценкам за период)
+            try:
+                cursor.execute('DROP INDEX IF EXISTS idx_grades_unique')
+            except sqlite3.OperationalError:
+                pass
+
+            # Хэши загруженных Excel-файлов (защита от повторной загрузки)
             cursor.execute('''
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_grades_unique
-                ON Grades(student_name, subject, date, grade)
+                CREATE TABLE IF NOT EXISTS UploadedFiles (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    file_hash TEXT NOT NULL UNIQUE,
+                    class TEXT NOT NULL,
+                    uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
             ''')
 
             # Мероприятия
@@ -190,6 +201,42 @@ class DatabaseManager:
             cursor.execute('''
                 CREATE INDEX IF NOT EXISTS idx_support_messages_chat
                 ON SupportMessages(chat_id, created_at)
+            ''')
+
+            # Тикеты (вопросы к администрации — переписка)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS Tickets (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    student_user_id INTEGER NOT NULL,
+                    student_name TEXT,
+                    student_class TEXT,
+                    title TEXT NOT NULL,
+                    status TEXT DEFAULT 'open',
+                    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+                    closed_at TEXT
+                )
+            ''')
+
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_tickets_student
+                ON Tickets(student_user_id, status)
+            ''')
+
+            # Сообщения в тикетах
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS TicketMessages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ticket_id INTEGER NOT NULL REFERENCES Tickets(id),
+                    sender_type TEXT NOT NULL,
+                    sender_name TEXT,
+                    text TEXT NOT NULL,
+                    created_at TEXT DEFAULT (datetime('now', 'localtime'))
+                )
+            ''')
+
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_ticket_messages
+                ON TicketMessages(ticket_id, created_at)
             ''')
 
             conn.commit()

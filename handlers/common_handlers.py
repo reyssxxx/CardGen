@@ -39,16 +39,22 @@ def _is_env_admin(user_id: int) -> bool:
 
 async def _show_menu(target, user, is_new_message=False):
     """Показать главное меню пользователю."""
-    name_first = user["ФИ"].split()[0]
+    full_name = user["ФИ"]
+    name_parts = full_name.split()
     if user["isAdmin"]:
-        text = f"Добро пожаловать, {name_first}! Выбери действие:"
+        # Имя Фамилия
+        greeting = " ".join(name_parts[:2]) if len(name_parts) >= 2 else full_name
+        text = f"Добро пожаловать, {greeting}! Выбери действие:"
         kb = get_admin_main_menu()
     elif user["isTeacher"]:
-        text = f"Добро пожаловать, {name_first}! Выбери действие:"
+        # ФИО полностью
+        text = f"Добро пожаловать, {full_name}! Выбери действие:"
         kb = get_teacher_main_menu()
     else:
+        # Имя Фамилия
+        greeting = " ".join(name_parts[:2]) if len(name_parts) >= 2 else full_name
         cls = user["class"]
-        text = f"Привет, {name_first}! (Класс: {cls})\nЧто хочешь сделать?"
+        text = f"Привет, {greeting}! (Класс: {cls})\nЧто хочешь сделать?"
         kb = get_student_main_menu()
     if is_new_message:
         await target.answer(text, reply_markup=kb)
@@ -89,7 +95,7 @@ async def cmd_start(message: Message, state: FSMContext):
     if is_psychologist(user_id):
         name = get_psychologist_name(user_id) or message.from_user.full_name or "Психолог"
         await message.answer(
-            f"Добро пожаловать, {name.split()[0]}! Выбери действие:",
+            f"Добро пожаловать, {name}! Выбери действие:",
             reply_markup=get_psychologist_main_menu(),
         )
         return

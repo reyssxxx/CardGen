@@ -46,9 +46,9 @@ class AdminSendAnnouncement(StatesGroup):
     confirming = State()
 
 
-class AdminAnswerQuestion(StatesGroup):
-    """Состояния для ответа на анонимный вопрос"""
-    entering_answer = State()
+class AdminTicket(StatesGroup):
+    """Состояния для работы администратора с тикетом"""
+    in_thread = State()
 
 
 class AdminSendCards(StatesGroup):
@@ -65,10 +65,10 @@ class AdminGradeManagement(StatesGroup):
     entering_new_grade = State()
 
 
-class StudentQuestion(StatesGroup):
-    """Состояния для отправки вопроса администратору"""
-    entering_question = State()
-    confirming = State()
+class StudentTicket(StatesGroup):
+    """Состояния для обращений к администрации (тикеты)"""
+    creating = State()
+    in_thread = State()
 
 
 class TeacherSendAnnouncement(StatesGroup):

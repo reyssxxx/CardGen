@@ -6,7 +6,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from typing import List, Optional
 
 
-HANDBOOK_URL = "https://reyssxxx.github.io/CardGen/handbook/"
+HANDBOOK_URL = "https://lyceumsfedu.yonote.ru/share/98ef3601-f8d5-4ead-a4c1-5c505c5b683c"
 
 
 def get_student_main_menu() -> InlineKeyboardMarkup:
@@ -131,41 +131,59 @@ def get_my_events_keyboard(events: List[dict]) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def get_question_confirm_keyboard() -> InlineKeyboardMarkup:
+def get_announcement_nav_keyboard(page: int, total: int) -> InlineKeyboardMarkup:
+    """Навигация по объявлениям: ← страница → + Назад."""
     builder = InlineKeyboardBuilder()
-    builder.row(
-        InlineKeyboardButton(text="✅ Отправить", callback_data="question_confirm"),
-        InlineKeyboardButton(text="❌ Отмена", callback_data="question_cancel"),
-    )
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="◀️", callback_data=f"ann_page:{page - 1}"))
+    nav.append(InlineKeyboardButton(text=f"{page + 1}/{total}", callback_data="ann_noop"))
+    if page < total - 1:
+        nav.append(InlineKeyboardButton(text="▶️", callback_data=f"ann_page:{page + 1}"))
+    builder.row(*nav)
+    builder.row(InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:back_student"))
     return builder.as_markup()
 
 
-def get_questions_menu_keyboard() -> InlineKeyboardMarkup:
-    """Меню раздела вопросов."""
+def get_tickets_menu_keyboard() -> InlineKeyboardMarkup:
+    """Меню раздела обращений."""
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="✏️ Задать вопрос", callback_data="question:ask"))
-    builder.row(InlineKeyboardButton(text="📋 Мои вопросы", callback_data="question:my"))
+    builder.row(InlineKeyboardButton(text="✏️ Новое обращение", callback_data="ticket:new"))
+    builder.row(InlineKeyboardButton(text="📋 Мои обращения", callback_data="ticket:my"))
     builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="menu:back_student"))
     return builder.as_markup()
 
 
-def get_my_questions_keyboard(questions: List[dict]) -> InlineKeyboardMarkup:
-    """Список вопросов ученика."""
+def get_my_tickets_keyboard(tickets: List[dict]) -> InlineKeyboardMarkup:
+    """Список обращений ученика."""
     builder = InlineKeyboardBuilder()
-    for q in questions:
-        date_str = q["created_at"][:10] if q.get("created_at") else ""
-        status = "✅" if q.get("answered") else "⏳"
-        short = q["text"][:30] + "…" if len(q["text"]) > 30 else q["text"]
-        label = f"{status} {date_str} — {short}"
-        builder.row(InlineKeyboardButton(text=label, callback_data=f"my_q_view:{q['id']}"))
+    for t in tickets:
+        date_str = t["created_at"][:10] if t.get("created_at") else ""
+        status = "🟢" if t.get("status") == "open" else "🔴"
+        short = t["title"][:35] + "…" if len(t["title"]) > 35 else t["title"]
+        label = f"{status} {short} — {date_str}"
+        builder.row(InlineKeyboardButton(text=label, callback_data=f"ticket_view:{t['id']}"))
     builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="menu:question"))
     return builder.as_markup()
 
 
-def get_question_detail_keyboard() -> InlineKeyboardMarkup:
-    """Кнопка назад со страницы детали вопроса."""
+def get_student_ticket_reply_keyboard() -> ReplyKeyboardMarkup:
+    """ReplyKeyboard во время активного чата по тикету."""
+    return ReplyKeyboardMarkup(
+        keyboard=[[
+            KeyboardButton(text="🚪 Закрыть обращение"),
+            KeyboardButton(text="◀️ В главное меню"),
+        ]],
+        resize_keyboard=True,
+        one_time_keyboard=False,
+        input_field_placeholder="Написать сообщение...",
+    )
+
+
+def get_student_ticket_closed_keyboard() -> InlineKeyboardMarkup:
+    """Кнопка для просмотра закрытого тикета."""
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="◀️ Назад к вопросам", callback_data="question:my"))
+    builder.row(InlineKeyboardButton(text="◀️ Мои обращения", callback_data="ticket:my"))
     return builder.as_markup()
 
 
