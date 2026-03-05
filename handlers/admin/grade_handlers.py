@@ -97,7 +97,10 @@ async def process_excel_file(message: Message, state: FSMContext, bot: Bot):
         file_hash = hashlib.sha256(f.read()).hexdigest()
     if grade_repo.is_file_uploaded(file_hash):
         await wait.delete()
-        os.remove(file_path)
+        try:
+            os.remove(file_path)
+        except OSError:
+            pass
         await message.answer(
             "⚠️ Этот файл уже был загружен ранее. Повторная загрузка не выполнена.",
             reply_markup=get_cancel_keyboard(),

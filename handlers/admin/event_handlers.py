@@ -114,6 +114,8 @@ async def _show_event_manage(message, event_id: int, edit=False):
 
 @router.callback_query(F.data.startswith("section_add:"))
 async def section_add_start(callback: CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id):
+        return
     await callback.answer()
     event_id = int(callback.data.split(":")[1])
     await state.update_data(section_event_id=event_id)
@@ -291,16 +293,19 @@ async def publish_event(callback: CallbackQuery, state: FSMContext, bot: Bot):
     notify_kb = IKB()
     notify_kb.button(text="📋 Подробнее и записаться", callback_data=f"event_view:{event_id}")
     notify_markup = notify_kb.as_markup()
+    sent = 0
+    failed = 0
     for uid, _, _ in students:
         try:
             await bot.send_message(uid, announce_text, parse_mode="HTML", reply_markup=notify_markup)
+            sent += 1
         except Exception:
-            pass
+            failed += 1
         await asyncio.sleep(0.05)
-    await callback.message.edit_text(
-        f"✅ «{event['title']}» опубликовано! Уведомлено {len(students)} учеников.",
-        reply_markup=get_admin_main_menu(),
-    )
+    result_text = f"✅ «{event['title']}» опубликовано! Отправлено: {sent}"
+    if failed:
+        result_text += f", не доставлено: {failed}"
+    await callback.message.edit_text(result_text, reply_markup=get_admin_main_menu())
 
 
 # ── Управление из списка мероприятий ─────────────────────────────────────────

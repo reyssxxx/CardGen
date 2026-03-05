@@ -21,7 +21,7 @@ from utils.config_loader import get_all_classes
 
 router = Router()
 
-VALID_GRADES = {"2", "3", "4", "5", "н", "б"}
+VALID_GRADES = {"1", "2", "3", "4", "5"}
 
 
 def _invalidate_grade_card_cache(student_name: str) -> None:
@@ -262,7 +262,7 @@ async def grade_mgmt_save_new(message: Message, state: FSMContext):
     new_grade = message.text.strip().lower() if message.text else ""
     if new_grade not in VALID_GRADES:
         await message.answer(
-            "Недопустимое значение. Введи одно из: 2, 3, 4, 5, н, б",
+            "Недопустимое значение. Введи одно из: 1, 2, 3, 4, 5",
             reply_markup=get_cancel_keyboard(),
         )
         return

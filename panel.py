@@ -346,6 +346,7 @@ def _do_start():
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         text=True, bufsize=1, encoding="utf-8", errors="replace",
         cwd=BASE_DIR,
+        env=os.environ.copy(),
     )
     bot_process = proc
     threading.Thread(target=_stream_pipe, args=(proc.stdout, ""), daemon=True).start()

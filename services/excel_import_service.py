@@ -13,7 +13,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 logger = logging.getLogger(__name__)
 
 
-VALID_GRADES = {'1', '2', '3', '4', '5', 'н', 'б'}
+VALID_GRADES = {'1', '2', '3', '4', '5'}
 
 
 def parse_grades_excel(file_path: str, class_name: str, valid_students: list) -> dict:
@@ -225,7 +225,7 @@ def generate_template_excel(class_name: str, students: list, subjects: list) -> 
 
     # Инструкция под таблицей
     note_row = len(subjects) + 4
-    c = ws.cell(note_row, 1, "Оценки: 1 2 3 4 5 н б  ·  несколько через пробел: 5 4 3")
+    c = ws.cell(note_row, 1, "Оценки: 1 2 3 4 5  ·  несколько через пробел: 5 4 3")
     c.font = Font(color="64748B", italic=True, size=9)
 
     buf = io.BytesIO()

