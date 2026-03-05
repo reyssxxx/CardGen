@@ -49,6 +49,16 @@ def _get_student(user_id: int):
     return user
 
 
+def _event_registration_open(event: dict) -> bool:
+    """Запись открыта только если мероприятие ещё не наступило (строго завтра или позже)."""
+    from datetime import date, datetime
+    try:
+        event_date = datetime.strptime(event["date"], "%d.%m.%Y").date()
+        return event_date > date.today()
+    except (ValueError, KeyError):
+        return True
+
+
 # ── Главное меню (инлайн) ─────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "menu:card")
@@ -286,6 +296,10 @@ async def register_for_section(callback: CallbackQuery):
     _, event_id_str, section_id_str = callback.data.split(":")
     event_id = int(event_id_str)
     section_id = int(section_id_str)
+    event = event_repo.get_event(event_id)
+    if event and not _event_registration_open(event):
+        await callback.answer("Запись на это мероприятие закрыта — оно уже сегодня или прошло.", show_alert=True)
+        return
     section = event_repo.get_section(section_id)
     if not section:
         await callback.answer("Секция не найдена.", show_alert=True)
@@ -377,6 +391,9 @@ async def register_for_event(callback: CallbackQuery):
     event_id = int(callback.data.split(":")[1])
     event = event_repo.get_event(event_id)
     if not event:
+        return
+    if not _event_registration_open(event):
+        await callback.answer("Запись на это мероприятие закрыта — оно уже сегодня или прошло.", show_alert=True)
         return
     class_name = user["class"]
     if not event_repo.is_event_available(event_id, class_name, event.get("class_limit")):

@@ -42,13 +42,19 @@ class EventRepository:
             conn.close()
 
     def get_active_events(self) -> list:
-        """Получить все активные опубликованные мероприятия (для учеников)."""
+        """Получить активные опубликованные мероприятия с датой >= сегодня (для учеников)."""
+        from datetime import date
+        today = date.today().strftime('%d.%m.%Y')
         conn = self._conn()
         try:
             cursor = conn.cursor()
-            cursor.execute(
-                'SELECT * FROM Events WHERE is_active = 1 AND published = 1 ORDER BY date ASC'
-            )
+            # Дата хранится в формате DD.MM.YYYY — сравниваем через strftime SQLite
+            cursor.execute('''
+                SELECT * FROM Events
+                WHERE is_active = 1 AND published = 1
+                  AND date(substr(date,7,4)||'-'||substr(date,4,2)||'-'||substr(date,1,2)) >= date('now','localtime')
+                ORDER BY date ASC
+            ''')
             return [dict(row) for row in cursor.fetchall()]
         finally:
             conn.close()
